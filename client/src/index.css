@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ─── Warm family palette — soft sage green accent, warm cream surfaces ─── */
+  :root {
+    --background: 38 30% 96%;
+    --foreground: 30 20% 15%;
+
+    --card: 38 25% 98%;
+    --card-foreground: 30 20% 15%;
+
+    --popover: 38 25% 98%;
+    --popover-foreground: 30 20% 15%;
+
+    --primary: 152 35% 30%;
+    --primary-foreground: 0 0% 98%;
+
+    --secondary: 38 20% 91%;
+    --secondary-foreground: 30 20% 25%;
+
+    --muted: 38 15% 92%;
+    --muted-foreground: 30 10% 48%;
+
+    --accent: 152 25% 88%;
+    --accent-foreground: 152 40% 20%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 38 12% 84%;
+    --input: 38 12% 84%;
+    --ring: 152 35% 30%;
+
+    --radius: 0.5rem;
+
+    /* Child colors */
+    --child-cole: 217 91% 60%;
+    --child-greta: 270 67% 60%;
+    --child-airlie: 142 71% 45%;
+    --child-clara: 38 92% 50%;
+    --child-heidi: 350 89% 60%;
+    --child-daisy: 174 72% 45%;
+  }
+
+  .dark {
+    --background: 30 15% 9%;
+    --foreground: 38 20% 88%;
+
+    --card: 30 12% 12%;
+    --card-foreground: 38 20% 88%;
+
+    --popover: 30 12% 12%;
+    --popover-foreground: 38 20% 88%;
+
+    --primary: 152 40% 48%;
+    --primary-foreground: 0 0% 6%;
+
+    --secondary: 30 10% 18%;
+    --secondary-foreground: 38 15% 75%;
+
+    --muted: 30 10% 18%;
+    --muted-foreground: 38 8% 55%;
+
+    --accent: 152 20% 22%;
+    --accent-foreground: 152 40% 70%;
+
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 30 8% 22%;
+    --input: 30 8% 22%;
+    --ring: 152 40% 48%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* ─── Child avatar colors ─── */
+.child-cole    { background-color: hsl(var(--child-cole));    }
+.child-greta   { background-color: hsl(var(--child-greta));   }
+.child-airlie  { background-color: hsl(var(--child-airlie));  }
+.child-clara   { background-color: hsl(var(--child-clara));   }
+.child-heidi   { background-color: hsl(var(--child-heidi));   }
+.child-daisy   { background-color: hsl(var(--child-daisy));   }
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
