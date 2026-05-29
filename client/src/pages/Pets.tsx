@@ -10,7 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Stethoscope, Pill, Scissors, PawPrint, Pencil } from "lucide-react";
+import { Plus, Stethoscope, Pill, Scissors, PawPrint, Pencil, Syringe } from "lucide-react";
+import { format, parseISO, isBefore, addDays } from "date-fns";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Pet {
@@ -44,6 +45,21 @@ interface Medication {
   notes?: string;
 }
 
+type VaxStatus = "completed" | "scheduled" | "overdue" | "not_required" | "declined";
+
+interface PetVaccine {
+  id: string;
+  pet_id: string;
+  name: string;
+  date_given?: string;
+  next_due?: string;
+  status: VaxStatus;
+  provider?: string;
+  administered_by?: string;
+  lot_number?: string;
+  notes?: string;
+}
+
 interface Grooming {
   id: string;
   pet_id: string;
@@ -56,8 +72,34 @@ interface Grooming {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmtDate(iso?: string) {
   if (!iso) return "—";
-  const [y, m, d] = iso.split("-");
-  return `${m}/${d}/${y}`;
+  try { return format(parseISO(iso), "MMM d, yyyy"); }
+  catch { return iso; }
+}
+
+const VAX_STATUS_CFG: Record<VaxStatus, { label: string; color: string; bg: string }> = {
+  completed:    { label: "Completed",    color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-200" },
+  scheduled:    { label: "Scheduled",    color: "text-blue-700",    bg: "bg-blue-50 border-blue-200" },
+  overdue:      { label: "Overdue",      color: "text-red-700",     bg: "bg-red-50 border-red-200" },
+  not_required: { label: "Not required", color: "text-gray-500",    bg: "bg-gray-50 border-gray-200" },
+  declined:     { label: "Declined",     color: "text-amber-700",   bg: "bg-amber-50 border-amber-200" },
+};
+
+function computeVaxStatus(v: PetVaccine): VaxStatus {
+  if (v.status === "completed" && v.next_due) {
+    const due = parseISO(v.next_due);
+    if (isBefore(due, new Date())) return "overdue";
+    if (isBefore(due, addDays(new Date(), 30))) return "scheduled";
+  }
+  return v.status;
+}
+
+function VaxBadge({ status }: { status: VaxStatus }) {
+  const cfg = VAX_STATUS_CFG[status];
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${cfg.bg} ${cfg.color}`}>
+      {cfg.label}
+    </span>
+  );
 }
 
 function PetAvatar({ pet, size = "md" }: { pet: Pet; size?: "sm" | "md" | "lg" }) {
@@ -69,6 +111,75 @@ function PetAvatar({ pet, size = "md" }: { pet: Pet; size?: "sm" | "md" | "lg" }
       style={{ backgroundColor: pet.color }}
     >
       {emoji}
+    </div>
+  );
+}
+
+// ─── Pet Vaccine Dialog ──────────────────────────────────────────────────────
+function PetVaccineDialog({ petId, petName, existing, onClose }: { petId: string; petName: string; existing?: PetVaccine; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [form, setForm] = useState({
+    name: existing?.name || "",
+    date_given: existing?.date_given || "",
+    next_due: existing?.next_due || "",
+    status: (existing?.status || "completed") as VaxStatus,
+    provider: existing?.provider || "",
+    administered_by: existing?.administered_by || "",
+    lot_number: existing?.lot_number || "",
+    notes: existing?.notes || "",
+  });
+  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const payload = { ...form, pet_id: petId };
+      if (existing) return apiRequest("PUT", `/api/pet-vaccines/${existing.id}`, payload);
+      return apiRequest("POST", "/api/pet-vaccines", payload);
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/pet-vaccines"] }); onClose(); },
+  });
+
+  const del = useMutation({
+    mutationFn: async () => apiRequest("DELETE", `/api/pet-vaccines/${existing!.id}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/pet-vaccines"] }); onClose(); },
+  });
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label>Vaccine name</Label>
+          <Input value={form.name} onChange={e => set("name", e.target.value)} placeholder="e.g. Rabies, DHPP" />
+        </div>
+        <div>
+          <Label>Status</Label>
+          <Select value={form.status} onValueChange={v => set("status", v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {(Object.keys(VAX_STATUS_CFG) as VaxStatus[]).map(s => (
+                <SelectItem key={s} value={s}>{VAX_STATUS_CFG[s].label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div><Label>Date given</Label><Input type="date" value={form.date_given} onChange={e => set("date_given", e.target.value)} /></div>
+        <div><Label>Next due / booster</Label><Input type="date" value={form.next_due} onChange={e => set("next_due", e.target.value)} /></div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div><Label>Provider / Clinic</Label><Input value={form.provider} onChange={e => set("provider", e.target.value)} placeholder="Blue Ridge Vet" /></div>
+        <div><Label>Administered by</Label><Input value={form.administered_by} onChange={e => set("administered_by", e.target.value)} placeholder="Dr. Jones" /></div>
+      </div>
+      <div><Label>Lot number (optional)</Label><Input value={form.lot_number} onChange={e => set("lot_number", e.target.value)} placeholder="e.g. AB1234" /></div>
+      <div><Label>Notes</Label><Textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={2} /></div>
+      <div className="flex justify-between">
+        {existing && <Button variant="destructive" size="sm" onClick={() => del.mutate()}>Delete</Button>}
+        <div className="flex gap-2 ml-auto">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => save.mutate()} disabled={!form.name || save.isPending}>Save</Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -250,13 +361,18 @@ function PetPanel({ pet }: { pet: Pet }) {
   const [vetOpen, setVetOpen] = useState(false);
   const [medOpen, setMedOpen] = useState(false);
   const [groomOpen, setGroomOpen] = useState(false);
+  const [vaxOpen, setVaxOpen] = useState(false);
   const [editVet, setEditVet] = useState<VetAppt | undefined>();
   const [editMed, setEditMed] = useState<Medication | undefined>();
   const [editGroom, setEditGroom] = useState<Grooming | undefined>();
+  const [editVax, setEditVax] = useState<PetVaccine | undefined>();
 
   const { data: vets = [] }   = useQuery<VetAppt[]>({ queryKey: [`/api/pets/${pet.id}/vet`], queryFn: async () => (await apiRequest("GET", `/api/pets/${pet.id}/vet`)).json() });
   const { data: meds = [] }   = useQuery<Medication[]>({ queryKey: [`/api/pets/${pet.id}/meds`], queryFn: async () => (await apiRequest("GET", `/api/pets/${pet.id}/meds`)).json() });
   const { data: grooms = [] } = useQuery<Grooming[]>({ queryKey: [`/api/pets/${pet.id}/grooming`], queryFn: async () => (await apiRequest("GET", `/api/pets/${pet.id}/grooming`)).json() });
+  const { data: allPetVax = [] } = useQuery<PetVaccine[]>({ queryKey: ["/api/pet-vaccines"], queryFn: async () => (await apiRequest("GET", "/api/pet-vaccines")).json() });
+  const petVax = allPetVax.filter(v => v.pet_id === pet.id);
+  const overdueVax = petVax.filter(v => computeVaxStatus(v) === "overdue");
 
   return (
     <Card className="mb-6">
@@ -274,6 +390,10 @@ function PetPanel({ pet }: { pet: Pet }) {
         <Tabs defaultValue="vet">
           <TabsList className="mb-4">
             <TabsTrigger value="vet" className="gap-1.5"><Stethoscope className="w-3.5 h-3.5" />Vet</TabsTrigger>
+            <TabsTrigger value="vaccines" className="gap-1.5">
+              <Syringe className="w-3.5 h-3.5" />Vaccines
+              {overdueVax.length > 0 && <span className="ml-1 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center">{overdueVax.length}</span>}
+            </TabsTrigger>
             <TabsTrigger value="meds" className="gap-1.5"><Pill className="w-3.5 h-3.5" />Medications</TabsTrigger>
             <TabsTrigger value="grooming" className="gap-1.5"><Scissors className="w-3.5 h-3.5" />Grooming</TabsTrigger>
           </TabsList>
@@ -310,6 +430,62 @@ function PetPanel({ pet }: { pet: Pet }) {
                     </Button>
                   </div>
                 ))}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* VACCINES TAB */}
+          <TabsContent value="vaccines">
+            <div className="flex justify-between items-center mb-3">
+              <p className="text-sm text-muted-foreground">{petVax.length} vaccine record{petVax.length !== 1 ? "s" : ""}</p>
+              <Dialog open={vaxOpen} onOpenChange={open => { setVaxOpen(open); if (!open) setEditVax(undefined); }}>
+                <DialogTrigger asChild>
+                  <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEditVax(undefined)}>
+                    <Plus className="w-3.5 h-3.5" />Add
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader><DialogTitle>{editVax ? "Edit" : "Add"} Vaccine — {pet.name}</DialogTitle></DialogHeader>
+                  <PetVaccineDialog petId={pet.id} petName={pet.name} existing={editVax} onClose={() => setVaxOpen(false)} />
+                </DialogContent>
+              </Dialog>
+            </div>
+            {petVax.length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">No vaccine records yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {petVax
+                  .slice()
+                  .sort((a, b) => {
+                    const order: Record<VaxStatus, number> = { overdue: 0, scheduled: 1, completed: 2, declined: 3, not_required: 4 };
+                    return (order[computeVaxStatus(a)] ?? 5) - (order[computeVaxStatus(b)] ?? 5);
+                  })
+                  .map(v => {
+                    const status = computeVaxStatus(v);
+                    return (
+                      <div key={v.id} className="flex items-center gap-3 px-3 py-2 rounded-lg border border-border/60 bg-card">
+                        <Syringe className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-sm">{v.name}</span>
+                            <VaxBadge status={status} />
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5 flex gap-3 flex-wrap">
+                            {v.date_given && <span>Given: {fmtDate(v.date_given)}</span>}
+                            {v.next_due   && <span className={status === "overdue" ? "text-red-600 font-medium" : status === "scheduled" ? "text-blue-600" : ""}>
+                              {status === "overdue" ? "Overdue since: " : "Next due: "}{fmtDate(v.next_due)}
+                            </span>}
+                            {v.provider   && <span>· {v.provider}</span>}
+                            {v.lot_number && <span>Lot: {v.lot_number}</span>}
+                          </div>
+                          {v.notes && <p className="text-xs text-muted-foreground mt-0.5 italic">{v.notes}</p>}
+                        </div>
+                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => { setEditVax(v); setVaxOpen(true); }}>
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    );
+                  })}
               </div>
             )}
           </TabsContent>

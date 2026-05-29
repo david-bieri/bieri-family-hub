@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.5.0] — 2026-05-29
+
+### Added
+- **Vaccine tracker — children** — per-child collapsible sections in Medical page showing all vaccine records with status badges (Completed /  Scheduled / Overdue / Not required / Declined); overdue + due-soon auto-detected from `next_due` date; alert banner at top of Medical page when action needed
+- **Vaccine tracker — pets** — new Vaccines tab in each pet card (Otis, Athena, Persephone); same status badge system; red badge on tab when overdue vaccines exist
+- **Shared fields on all vaccine records:** status, administered_by, lot number, notes, next due/booster date
+- New Supabase table: `pet_vaccines` (pet_id, name, date_given, next_due, status, provider, administered_by, lot_number, notes)
+- Supabase migration: added `status`, `administered_by`, `lot_number` columns to existing `vaccines` table
+
+### Changed
+- Medical page: Vaccines tab moved to be the primary (default) tab; per-child accordion layout replaces flat list
+- Pets page: Vaccines tab added between Vet and Medications
+
 ## [1.4.0] — 2026-05-29
 
 ### Added

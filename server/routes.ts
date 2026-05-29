@@ -69,21 +69,49 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
   app.post("/api/vaccines", async (req, res) => {
     const id = nanoid();
-    const { child_id, name, date_given, next_due, provider, notes } = req.body;
+    const { child_id, name, date_given, next_due, status, provider, administered_by, lot_number, notes } = req.body;
     const { data, error } = await supabase.from("vaccines").insert([
-      { id, child_id, name, date_given, next_due, provider, notes }
+      { id, child_id, name, date_given, next_due, status: status || "completed", provider, administered_by, lot_number, notes }
     ]).select().single();
     if (error) return res.status(500).json({ error: error.message });
     res.json(data);
   });
 
   app.put("/api/vaccines/:id", async (req, res) => {
-    const { child_id, name, date_given, next_due, provider, notes } = req.body;
+    const { child_id, name, date_given, next_due, status, provider, administered_by, lot_number, notes } = req.body;
     const { data, error } = await supabase.from("vaccines")
-      .update({ child_id, name, date_given, next_due, provider, notes })
+      .update({ child_id, name, date_given, next_due, status: status || "completed", provider, administered_by, lot_number, notes })
       .eq("id", req.params.id).select().single();
     if (error) return res.status(500).json({ error: error.message });
     res.json(data);
+  });
+
+  // ─── PET VACCINES ───────────────────────────────────────────────────────────────
+  app.get("/api/pet-vaccines", async (_req, res) => {
+    const { data, error } = await supabase.from("pet_vaccines").select("*").order("date_given", { ascending: false });
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.post("/api/pet-vaccines", async (req, res) => {
+    const { pet_id, name, date_given, next_due, status, provider, administered_by, lot_number, notes } = req.body;
+    const { data, error } = await supabase.from("pet_vaccines").insert([
+      { id: nanoid(), pet_id, name, date_given, next_due, status: status || "completed", provider, administered_by, lot_number, notes }
+    ]).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.put("/api/pet-vaccines/:id", async (req, res) => {
+    const { pet_id, name, date_given, next_due, status, provider, administered_by, lot_number, notes } = req.body;
+    const { data, error } = await supabase.from("pet_vaccines")
+      .update({ pet_id, name, date_given, next_due, status: status || "completed", provider, administered_by, lot_number, notes })
+      .eq("id", req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.delete("/api/pet-vaccines/:id", async (req, res) => {
+    const { error } = await supabase.from("pet_vaccines").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
   });
 
   app.delete("/api/vaccines/:id", async (req, res) => {
