@@ -118,3 +118,21 @@ CREATE TABLE IF NOT EXISTS share_tokens (
   created_at  TIMESTAMPTZ DEFAULT NOW(),
   expires_at  TIMESTAMPTZ
 );
+
+-- ─── Pending Imports / Inbox Scanner (v1.3) ───────────────────────────────────
+CREATE TABLE IF NOT EXISTS pending_imports (
+  id           TEXT PRIMARY KEY,
+  source       TEXT NOT NULL DEFAULT 'email',
+  raw_subject  TEXT,
+  raw_from     TEXT,
+  raw_date     TEXT,
+  raw_snippet  TEXT,
+  gmail_id     TEXT UNIQUE,        -- deduplication key; NULL for non-Gmail sources
+  extracted    JSONB NOT NULL DEFAULT '[]',
+  status       TEXT NOT NULL DEFAULT 'pending',  -- pending | reviewed | dismissed
+  reviewed_at  TIMESTAMPTZ,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS pending_imports_status_idx  ON pending_imports(status);
+CREATE INDEX IF NOT EXISTS pending_imports_created_idx ON pending_imports(created_at DESC);

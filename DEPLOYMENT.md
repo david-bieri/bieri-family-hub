@@ -28,6 +28,7 @@ This is the cleanest setup for zero-maintenance hosting. Both services have gene
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=eyJ...
 APP_PASSWORD=your-family-password
+PPLX_API_KEY=pplx-...          # Perplexity API key — for email LLM extraction
 NODE_ENV=production
 ```
 
@@ -125,6 +126,20 @@ server {
     }
 }
 ```
+
+---
+
+## Email Scanner — Self-Hosting
+
+The daily Gmail scan uses Perplexity's `external-tool` CLI, which is only available inside Perplexity Computer sessions. When self-hosting, replace it with one of these:
+
+**Gmail API (OAuth2)** — see `docs/EMAIL_SCANNER.md` → Platform Migration → Option A  
+**Postmark inbound webhook** — email arrives → fires `POST /api/inbox/scan` instantly, no polling  
+**IMAP** — works with any email provider, no Google API credentials needed
+
+The rest of the pipeline (tag parsing, LLM extraction, Supabase storage, the Inbox UI) is fully platform-independent. Only the Gmail connector piece needs replacing.
+
+Get your `PPLX_API_KEY` at [perplexity.ai/settings/api](https://www.perplexity.ai/settings/api). Without it, untagged emails fall back to regex extraction (still works, lower accuracy).
 
 ---
 

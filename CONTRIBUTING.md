@@ -78,6 +78,31 @@ Auth is a single shared password stored in the `APP_PASSWORD` environment variab
 - Keep components in `client/src/pages/`, shared UI in `client/src/components/ui/`
 - Data-testid attributes on every interactive element: `{action}-{target}` pattern
 
+## Email Scanner
+
+The scanner lives in two places:
+
+- **`server/emailExtractor.ts`** — the LLM extraction logic. Takes raw email fields, calls `POST https://api.perplexity.ai/chat/completions` with the `sonar` model, parses the JSON response into `ExtractedItem[]`. If the API key is missing or the call fails, `fallbackExtract()` runs a regex pass instead.
+- **`scripts/gmail_scan.py`** — the standalone Python script that talks to Gmail via the `external-tool` CLI and POSTs each email to `/api/inbox/scan`. This is what the daily cron runs.
+
+### Adding or changing subject-line tags
+
+Tags are parsed in `server/emailExtractor.ts` in the `parseTagFromSubject()` function (to be added — currently the tag logic lives in the scan script). To add a new tag:
+
+1. Add it to the `TAG_MAP` in `emailExtractor.ts`
+2. Add it to the `TAG_MAP` in `scripts/gmail_scan.py`
+3. Document it in `docs/EMAIL_SCANNER.md`
+
+### Updating the Gmail search queries
+
+The queries are in `scripts/gmail_scan.py` under `SEARCH_QUERIES`. Keep them broad — false positives are fine (the LLM will return an empty array for irrelevant emails). False negatives (missed emails) are the real cost.
+
+### Platform migration for Gmail
+
+See `docs/EMAIL_SCANNER.md` — Platform Migration section for Gmail API OAuth2, Postmark webhook, and IMAP alternatives that don't depend on the Perplexity `external-tool` CLI.
+
+---
+
 ## Dependency Notes
 
 - `nanoid` is pinned to v3 (`nanoid@3`) — v4+ uses ESM-only exports incompatible with the CJS server bundle

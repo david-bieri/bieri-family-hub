@@ -3,8 +3,10 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import {
   LayoutDashboard, Calendar, Stethoscope, Trophy,
-  Tent, CreditCard, LogOut, Menu, X, Moon, Sun, Tag, CalendarDays
+  Tent, CreditCard, LogOut, Menu, X, Moon, Sun, Tag, CalendarDays, Inbox
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +19,7 @@ const NAV = [
   { href: "/camps",          label: "Camps & Reg.",   icon: Tent },
   { href: "/payments",       label: "Payments",       icon: CreditCard },
   { href: "/categories",     label: "Categories",     icon: Tag },
+  { href: "/inbox",          label: "Inbox",           icon: Inbox, badge: true },
 ];
 
 function useDark() {
@@ -31,11 +34,21 @@ function useDark() {
   return { dark, toggle };
 }
 
+function useInboxCount() {
+  const { data } = useQuery({
+    queryKey: ["/api/inbox/count"],
+    queryFn: async () => (await apiRequest("GET", "/api/inbox/count")).json(),
+    refetchInterval: 60_000,
+  });
+  return (data as any)?.count || 0;
+}
+
 export default function Layout({ children }: { children: ReactNode }) {
   const { logout } = useAuth();
   const [location] = useLocation();
   const [open, setOpen] = useState(false);
   const { dark, toggle } = useDark();
+  const inboxCount = useInboxCount();
 
   const sidebar = (
     <div className="flex flex-col h-full">
@@ -53,8 +66,9 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       {/* Nav */}
       <nav className="flex-1 px-2 py-3 space-y-0.5">
-        {NAV.map(({ href, label, icon: Icon }) => {
+        {NAV.map(({ href, label, icon: Icon, badge }) => {
           const active = href === "/" ? location === "/" : location.startsWith(href);
+          const showBadge = badge && inboxCount > 0;
           return (
             <Link key={href} href={href}>
               <a
@@ -68,7 +82,15 @@ export default function Layout({ children }: { children: ReactNode }) {
                 )}
               >
                 <Icon size={16} />
-                {label}
+                <span className="flex-1">{label}</span>
+                {showBadge && (
+                  <span className={cn(
+                    "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none",
+                    active ? "bg-white/30 text-white" : "bg-primary text-primary-foreground"
+                  )}>
+                    {inboxCount}
+                  </span>
+                )}
               </a>
             </Link>
           );

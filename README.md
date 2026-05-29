@@ -12,6 +12,20 @@ A private family administration dashboard for tracking schedules, medical record
 - **Camps & Registrations** — summer camp and program tracking with deadline alerts
 - **Payments** — payment ledger with due-date reminders and status tracking
 - **Categories** — 7 built-in categories + unlimited custom categories with color picker
+- **Inbox Scanner** — daily Gmail scan extracts deadlines, appointments, and payments from forwarded emails; subject-line tags (`[CAMP]`, `[SPORT]`, `[MED]`, `[PAY]`, `[SCHOOL]`, `[REG]`) bypass the LLM for instant classification; human-in-the-loop review before anything is committed
+
+## Documentation
+
+| Document | Description |
+|---|---|
+| `README.md` | This file — setup, tech stack, project structure |
+| `CHANGELOG.md` | Full version history |
+| `CONTRIBUTING.md` | How to add pages, endpoints, children; key gotchas |
+| `DEPLOYMENT.md` | Self-hosting on Render, Vercel, Fly.io, Docker |
+| `docs/EMAIL_SCANNER.md` | Full email scanner docs — architecture, tags, migration paths |
+| `migration.sql` | Complete Supabase schema, runnable on any fresh project |
+
+---
 
 ## Tech Stack
 
@@ -22,6 +36,20 @@ A private family administration dashboard for tracking schedules, medical record
 | Database | Supabase (Postgres) |
 | Routing | wouter (hash-based, works in iframes) |
 | Auth | Single shared password; token stored in URL query param |
+
+## Environment Variables
+
+See [`.env.example`](./.env.example) for the full list. Key variables:
+
+| Variable | Required | Description |
+|---|---|---|
+| `SUPABASE_URL` | Yes | Supabase project URL |
+| `SUPABASE_ANON_KEY` | Yes | Supabase anon key |
+| `APP_PASSWORD` | Yes | Shared family login password |
+| `PPLX_API_KEY` | For email scanner | Perplexity API key (LLM extraction) |
+| `VITE_API_URL` | Self-hosting only | Backend URL when frontend/backend are on separate domains |
+
+---
 
 ## Local Development
 
@@ -75,10 +103,6 @@ See [`DEPLOYMENT.md`](./DEPLOYMENT.md) for full instructions on deploying to:
 - **Vercel** (recommended for the frontend, if deploying separately)
 - **Fly.io** (single-service deployment)
 - **Docker** (self-hosted VPS)
-
-## Environment Variables
-
-See [`.env.example`](./.env.example) for all available variables and their descriptions.
 
 ## Project Structure
 

@@ -6,6 +6,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.3.0] — 2026-05-29
+
+### Added
+- **Inbox Scanner** — daily automated Gmail scan with human-in-the-loop review
+  - Dedicated Gmail account (`bieri.family.hub@gmail.com`) for clean signal — forward relevant emails there from any address
+  - Subject-line tag shortcuts: `[CAMP]`, `[SPORT]`, `[SCHOOL]`, `[MED]`, `[PAY]`, `[REG]` — tagged emails skip the LLM entirely for instant, reliable classification
+  - Child name detection from subject line — auto-assigns `child_ids` when a child's name appears in the subject
+  - Full LLM extraction (Perplexity `sonar` model) for untagged emails — extracts type, title, date, time, amount, children, category, confidence, and source quote
+  - Regex fallback extractor — works without an API key for basic pattern matching
+  - Deduplication by `gmail_id` — emails already processed are silently skipped on subsequent runs
+- **Inbox page** — new sidebar nav item with live unread-count badge
+  - Each scanned email shown as a collapsible card with per-item Accept / Skip actions
+  - Accept commits the item directly to the right Supabase table (events, medical_appointments, payments, or registrations)
+  - Dismiss all — clears an entire email from the queue
+  - Auto-refreshes every 30 seconds
+- **Daily cron** — runs at 7:00 AM EDT (11:00 UTC), sends in-app notification only when new items are found; silent if nothing new
+- `scripts/gmail_scan.py` — standalone scan script, fully documented and portable
+- `docs/EMAIL_SCANNER.md` — full architecture docs including platform migration paths (Gmail API OAuth2, Postmark webhook, IMAP)
+
+### Changed
+- `server/routes.ts` — added `registerInboxRoutes()` with `/api/inbox/scan`, `/api/inbox/pending`, `/api/inbox/count`, `/api/inbox/:id/accept`, `/api/inbox/:id/dismiss`
+- `server/index.ts` — registers inbox routes alongside main routes
+- `Layout.tsx` — Inbox nav item with live badge count (polls `/api/inbox/count` every 60s)
+- `App.tsx` — added `/inbox` route
+
+### Infrastructure
+- New Supabase table: `pending_imports` (gmail_id unique index for deduplication)
+- New file: `server/emailExtractor.ts` — LLM extraction + regex fallback
+- New env var: `PPLX_API_KEY` — Perplexity API key for sonar model (optional; falls back to regex)
+- Updated `.env.example`, `README.md`, `CONTRIBUTING.md`, `DEPLOYMENT.md`, `migration.sql`
+
+---
+
 ## [1.2.0] — 2026-05-29
 
 ### Added

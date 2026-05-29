@@ -3,6 +3,7 @@ import type { Server } from "http";
 import { createClient } from "@supabase/supabase-js";
 import { nanoid } from "nanoid";
 import ws from "ws";
+import { extractFromEmail } from "./emailExtractor";
 
 
 const supabase = createClient(
@@ -457,4 +458,206 @@ function expandRecurring(ev: any, from?: string, to?: string): any[] {
   }
 
   return results;
+}
+
+// ─── INBOX / PENDING IMPORTS ────────────────────────────────────────────────
+// These routes handle the email extraction pipeline:
+//   POST /api/inbox/scan        — accepts raw email data, runs LLM extraction, saves to pending_imports
+//   GET  /api/inbox/pending     — returns all pending (unreviewed) imports
+//   POST /api/inbox/:id/accept  — accepts one extracted item and saves it to the appropriate table
+//   POST /api/inbox/:id/dismiss — marks an import as dismissed
+
+// Helper: save an accepted extracted item to the right Supabase table
+async function commitExtractedItem(item: any) {
+  const id = nanoid();
+  switch (item.type) {
+    case "event":
+      return supabase.from("events").insert({
+        id,
+        title: item.title,
+        date: item.date,
+        time: item.time,
+        child_ids: item.child_ids || [],
+        category: item.category || "other",
+        notes: item.notes,
+      });
+    case "appointment":
+      // Use the first child_id if present, else leave null
+      return supabase.from("medical_appointments").insert({
+        id,
+        child_id: item.child_ids?.[0] || "",
+        type: item.title,
+        date: item.date,
+        time: item.time,
+        notes: item.notes,
+        status: "scheduled",
+      });
+    case "payment":
+      return supabase.from("payments").insert({
+        id,
+        description: item.title,
+        amount: item.amount || "",
+        due_date: item.date,
+        child_id: item.child_ids?.[0] || null,
+        category: item.category || "payment",
+        status: "pending",
+        notes: item.notes,
+      });
+    case "registration":
+      return supabase.from("registrations").insert({
+        id,
+        child_id: item.child_ids?.[0] || "",
+        program_name: item.title,
+        deadline: item.date,
+        cost: item.amount,
+        status: "pending",
+        notes: item.notes,
+      });
+    default:
+      // tasks → save as events with category "other"
+      return supabase.from("events").insert({
+        id,
+        title: item.title,
+        date: item.date,
+        child_ids: item.child_ids || [],
+        category: "other",
+        notes: item.notes,
+      });
+  }
+}
+
+// POST /api/inbox/scan — called by the cron job or manual trigger
+// Body: { subject, from, date, snippet, body?, gmail_id? }
+export async function scanEmail(app: Express) {}
+
+// Register inbox routes on the app
+export function registerInboxRoutes(app: Express) {
+  // Manual scan endpoint — accepts a single email payload
+  app.post("/api/inbox/scan", async (req, res) => {
+    const { subject, from, date, snippet, body, gmail_id } = req.body;
+    if (!subject && !snippet) return res.status(400).json({ error: "No email content" });
+
+    // Avoid re-processing the same Gmail message
+    if (gmail_id) {
+      const { data: existing } = await supabase
+        .from("pending_imports")
+        .select("id")
+        .eq("gmail_id", gmail_id)
+        .single();
+      if (existing) return res.json({ skipped: true, reason: "already processed" });
+    }
+
+    const extracted = await extractFromEmail(subject || "", from || "", snippet || "", body);
+
+    if (extracted.length === 0) {
+      return res.json({ extracted: [], saved: false });
+    }
+
+    const importId = nanoid();
+    const { error } = await supabase.from("pending_imports").insert({
+      id: importId,
+      source: "email",
+      raw_subject: subject,
+      raw_from: from,
+      raw_date: date,
+      raw_snippet: snippet,
+      gmail_id: gmail_id || null,
+      extracted,
+      status: "pending",
+    });
+
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ id: importId, extracted });
+  });
+
+  // GET /api/inbox/pending — list unreviewed imports
+  app.get("/api/inbox/pending", async (_req, res) => {
+    const { data, error } = await supabase
+      .from("pending_imports")
+      .select("*")
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(50);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+  });
+
+  // GET /api/inbox/count — quick badge count
+  app.get("/api/inbox/count", async (_req, res) => {
+    const { count, error } = await supabase
+      .from("pending_imports")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "pending");
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ count: count || 0 });
+  });
+
+  // POST /api/inbox/:id/accept — accept one extracted item by index
+  // Body: { item_index: number, overrides?: Partial<ExtractedItem> }
+  app.post("/api/inbox/:id/accept", async (req, res) => {
+    const { id } = req.params;
+    const { item_index = 0, overrides = {} } = req.body;
+
+    const { data: record, error: fetchErr } = await supabase
+      .from("pending_imports")
+      .select("*")
+      .eq("id", id)
+      .single();
+    if (fetchErr || !record) return res.status(404).json({ error: "Not found" });
+
+    const items: any[] = record.extracted || [];
+    const item = items[item_index];
+    if (!item) return res.status(400).json({ error: "Item index out of range" });
+
+    const merged = { ...item, ...overrides };
+    const { error: commitErr } = await commitExtractedItem(merged);
+    if (commitErr) return res.status(500).json({ error: commitErr.message });
+
+    // Mark individual item as accepted
+    items[item_index] = { ...item, _accepted: true };
+    const allDone = items.every((i) => i._accepted || i._dismissed);
+
+    await supabase
+      .from("pending_imports")
+      .update({
+        extracted: items,
+        status: allDone ? "reviewed" : "pending",
+        reviewed_at: allDone ? new Date().toISOString() : null,
+      })
+      .eq("id", id);
+
+    res.json({ ok: true });
+  });
+
+  // POST /api/inbox/:id/dismiss — dismiss one or all items
+  // Body: { item_index?: number } — omit to dismiss entire import
+  app.post("/api/inbox/:id/dismiss", async (req, res) => {
+    const { id } = req.params;
+    const { item_index } = req.body;
+
+    if (item_index !== undefined) {
+      const { data: record } = await supabase
+        .from("pending_imports")
+        .select("extracted")
+        .eq("id", id)
+        .single();
+      const items: any[] = record?.extracted || [];
+      if (items[item_index]) items[item_index]._dismissed = true;
+      const allDone = items.every((i) => i._accepted || i._dismissed);
+      await supabase
+        .from("pending_imports")
+        .update({
+          extracted: items,
+          status: allDone ? "reviewed" : "pending",
+        })
+        .eq("id", id);
+    } else {
+      await supabase
+        .from("pending_imports")
+        .update({ status: "dismissed", reviewed_at: new Date().toISOString() })
+        .eq("id", id);
+    }
+
+    res.json({ ok: true });
+  });
 }
