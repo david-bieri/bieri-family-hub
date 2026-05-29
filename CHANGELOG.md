@@ -6,6 +6,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.4.0] — 2026-05-29
+
+### Added
+- **Pets module** — profiles for Otis, Athena, Persephone; vet appointments, medications & grooming tabs per pet
+- **`#TAG @Name` flag syntax** — replaces `[TAG]` prefix; supports `#CAMP`, `#SPORT`, `#SCHOOL`, `#MED`, `#PAY`, `#REG`, `#PET`, `#FAM`; `@mentions` match children and pets by prefix (e.g. `@Air` → Airlie)
+- **Pets in Family Calendar** — vet and grooming appointments appear in unified calendar view with brown color coding
+- **Pets category** in Supabase categories table (color `#78350f`)
+- New Supabase tables: `pets`, `pet_vet_appointments`, `pet_medications`, `pet_grooming`
+
+### Changed
+- `emailExtractor.ts` fully rewritten: fast-path now uses `#TAG` syntax, `@mention` detection for both children and pets, smarter date extraction (month-name prioritised over ISO timestamps)
+- `PawPrint` icon added to sidebar nav between Categories and Inbox
+
 ## [1.3.0] — 2026-05-29
 
 ### Added

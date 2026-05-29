@@ -136,3 +136,56 @@ CREATE TABLE IF NOT EXISTS pending_imports (
 
 CREATE INDEX IF NOT EXISTS pending_imports_status_idx  ON pending_imports(status);
 CREATE INDEX IF NOT EXISTS pending_imports_created_idx ON pending_imports(created_at DESC);
+
+-- ─── Pets (v1.4) ──────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS pets (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  species     TEXT,          -- 'dog' | 'cat' | 'rabbit' etc.
+  breed       TEXT,
+  dob         TEXT,          -- ISO yyyy-MM-dd
+  color       TEXT,          -- hex for calendar display
+  notes       TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS pet_vet_appointments (
+  id          TEXT PRIMARY KEY,
+  pet_id      TEXT NOT NULL REFERENCES pets(id) ON DELETE CASCADE,
+  type        TEXT NOT NULL, -- 'checkup' | 'vaccination' | 'procedure' | 'emergency' | 'other'
+  provider    TEXT,          -- vet name / clinic
+  date        TEXT,
+  time        TEXT,
+  notes       TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS pet_medications (
+  id          TEXT PRIMARY KEY,
+  pet_id      TEXT NOT NULL REFERENCES pets(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL, -- e.g. "Heartgard Plus", "Bravecto"
+  dose        TEXT,          -- e.g. "1 chew"
+  frequency   TEXT,          -- e.g. "monthly", "daily"
+  start_date  TEXT,
+  end_date    TEXT,          -- null = ongoing
+  notes       TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS pet_grooming (
+  id          TEXT PRIMARY KEY,
+  pet_id      TEXT NOT NULL REFERENCES pets(id) ON DELETE CASCADE,
+  provider    TEXT,
+  date        TEXT,
+  time        TEXT,
+  notes       TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Seed the three family pets
+INSERT INTO pets (id, name, species, breed, color, notes)
+VALUES
+  ('pet-otis',       'Otis',       'dog', 'Bernese Mountain Dog', '#78350f', null),
+  ('pet-athena',     'Athena',     'cat', 'Russian Blue',         '#64748b', null),
+  ('pet-persephone', 'Persephone', 'cat', 'Black Bombay',         '#1e1b4b', null)
+ON CONFLICT (id) DO NOTHING;

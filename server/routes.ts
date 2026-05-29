@@ -262,17 +262,108 @@ export async function registerRoutes(httpServer: Server, app: Express) {
     res.json({ ok: true });
   });
 
+  // ─── PETS ──────────────────────────────────────────────────────────────────
+  app.get("/api/pets", async (_req, res) => {
+    const { data, error } = await supabase.from("pets").select("*").order("name");
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.put("/api/pets/:id", async (req, res) => {
+    const { name, species, breed, dob, color, notes } = req.body;
+    const { data, error } = await supabase.from("pets").update({ name, species, breed, dob, color, notes }).eq("id", req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  // Pet vet appointments
+  app.get("/api/pets/:petId/vet", async (req, res) => {
+    const { data, error } = await supabase.from("pet_vet_appointments").select("*").eq("pet_id", req.params.petId).order("date");
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.post("/api/pets/:petId/vet", async (req, res) => {
+    const { nanoid } = await import("nanoid");
+    const { type, provider, date, time, notes } = req.body;
+    const { data, error } = await supabase.from("pet_vet_appointments").insert([{ id: nanoid(), pet_id: req.params.petId, type, provider, date, time, notes }]).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.put("/api/pets/vet/:id", async (req, res) => {
+    const { type, provider, date, time, notes } = req.body;
+    const { data, error } = await supabase.from("pet_vet_appointments").update({ type, provider, date, time, notes }).eq("id", req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.delete("/api/pets/vet/:id", async (req, res) => {
+    const { error } = await supabase.from("pet_vet_appointments").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  });
+
+  // Pet medications
+  app.get("/api/pets/:petId/meds", async (req, res) => {
+    const { data, error } = await supabase.from("pet_medications").select("*").eq("pet_id", req.params.petId).order("name");
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.post("/api/pets/:petId/meds", async (req, res) => {
+    const { nanoid } = await import("nanoid");
+    const { name, dose, frequency, start_date, end_date, notes } = req.body;
+    const { data, error } = await supabase.from("pet_medications").insert([{ id: nanoid(), pet_id: req.params.petId, name, dose, frequency, start_date, end_date, notes }]).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.put("/api/pets/meds/:id", async (req, res) => {
+    const { name, dose, frequency, start_date, end_date, notes } = req.body;
+    const { data, error } = await supabase.from("pet_medications").update({ name, dose, frequency, start_date, end_date, notes }).eq("id", req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.delete("/api/pets/meds/:id", async (req, res) => {
+    const { error } = await supabase.from("pet_medications").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  });
+
+  // Pet grooming
+  app.get("/api/pets/:petId/grooming", async (req, res) => {
+    const { data, error } = await supabase.from("pet_grooming").select("*").eq("pet_id", req.params.petId).order("date");
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.post("/api/pets/:petId/grooming", async (req, res) => {
+    const { nanoid } = await import("nanoid");
+    const { provider, date, time, notes } = req.body;
+    const { data, error } = await supabase.from("pet_grooming").insert([{ id: nanoid(), pet_id: req.params.petId, provider, date, time, notes }]).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.put("/api/pets/grooming/:id", async (req, res) => {
+    const { provider, date, time, notes } = req.body;
+    const { data, error } = await supabase.from("pet_grooming").update({ provider, date, time, notes }).eq("id", req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.delete("/api/pets/grooming/:id", async (req, res) => {
+    const { error } = await supabase.from("pet_grooming").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  });
+
   // ─── UNIFIED CALENDAR (all modules, date-based) ───────────────────────────
   // Returns a merged feed of all date-stamped items for a given month range
   app.get("/api/calendar", async (req, res) => {
     const { from, to } = req.query as { from?: string; to?: string };
 
-    const [evRes, apptRes, payRes, regRes, sportsRes] = await Promise.all([
+    const [evRes, apptRes, payRes, regRes, sportsRes, vetRes, groomRes] = await Promise.all([
       supabase.from("events").select("*").order("date"),
       supabase.from("medical_appointments").select("*").gte("date", from || "2000-01-01").lte("date", to || "2099-12-31"),
       supabase.from("payments").select("*").not("due_date", "is", null),
       supabase.from("registrations").select("*").not("deadline", "is", null),
       supabase.from("sports").select("*").eq("active", true),
+      supabase.from("pet_vet_appointments").select("*, pets(name, color)").not("date", "is", null),
+      supabase.from("pet_grooming").select("*, pets(name, color)").not("date", "is", null),
     ]);
 
     const items: any[] = [];
@@ -321,8 +412,31 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
     // Sports — generate practice events from days field
     for (const s of sportsRes.data || []) {
-      // We surface sports as metadata, not date-expanded (no date range defined per sport)
-      // They appear in the calendar legend/sidebar
+      // Surfaced in legend/sidebar; no per-date expansion without a date range field
+    }
+
+    // Pet vet appointments
+    for (const v of vetRes.data || []) {
+      items.push({
+        id: v.id,
+        title: `${v.pets?.name ?? "Pet"} — ${v.type} (${v.provider || "vet"})`,
+        date: v.date, time: v.time,
+        child_ids: [], pet_ids: [v.pet_id],
+        category: "pets", _type: "vet", _data: v,
+        color: v.pets?.color,
+      });
+    }
+
+    // Pet grooming appointments
+    for (const g of groomRes.data || []) {
+      items.push({
+        id: g.id,
+        title: `${g.pets?.name ?? "Pet"} — Grooming${g.provider ? " (" + g.provider + ")" : ""}`,
+        date: g.date, time: g.time,
+        child_ids: [], pet_ids: [g.pet_id],
+        category: "pets", _type: "grooming", _data: g,
+        color: g.pets?.color,
+      });
     }
 
     // Filter to range if provided
