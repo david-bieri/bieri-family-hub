@@ -81,6 +81,7 @@ docker run -d \
   -e SUPABASE_URL=https://your-project.supabase.co \
   -e SUPABASE_ANON_KEY=eyJ... \
   -e APP_PASSWORD=your-family-password \
+  -e PPLX_API_KEY=pplx-... \
   -e NODE_ENV=production \
   --name family-hub \
   --restart unless-stopped \
@@ -100,6 +101,7 @@ services:
       - SUPABASE_URL=https://your-project.supabase.co
       - SUPABASE_ANON_KEY=eyJ...
       - APP_PASSWORD=your-family-password
+      - PPLX_API_KEY=pplx-...
       - NODE_ENV=production
     restart: unless-stopped
 ```
@@ -152,7 +154,26 @@ If you ever need to start with a new Supabase project:
 3. Paste the full contents of `migration.sql` and run it
 4. Update `SUPABASE_URL` and `SUPABASE_ANON_KEY` in your deployment environment
 
-All your app data (events, medical records, payments, etc.) is portable — just export from the old Supabase project and import to the new one via the Supabase dashboard.
+All app data (events, medical records, vaccines, pets, payments, etc.) is portable — export from the old Supabase project and import to the new one via the Supabase dashboard.
+
+### Tables created by `migration.sql`
+
+| Table | Purpose |
+|---|---|
+| `events` | All calendar events + recurrence templates |
+| `vaccines` | Child vaccine records |
+| `medical_appointments` | Child appointments |
+| `sports` | Sport registrations and schedules |
+| `registrations` | Camp and program registrations |
+| `payments` | Payment ledger |
+| `categories` | 8 seeded built-in + custom categories |
+| `share_tokens` | Read-only calendar share tokens |
+| `pending_imports` | Email scan queue |
+| `pets` | Pet profiles (seeded: Otis, Athena, Persephone) |
+| `pet_vet_appointments` | Vet appointments per pet |
+| `pet_medications` | Medications per pet |
+| `pet_grooming` | Grooming records per pet |
+| `pet_vaccines` | Pet vaccine records |
 
 ---
 

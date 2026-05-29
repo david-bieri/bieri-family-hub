@@ -1,6 +1,28 @@
 -- Bieri Family Hub — Full Supabase Migration
 -- Run this once in the Supabase SQL Editor to create all tables.
 -- Safe to re-run: uses IF NOT EXISTS throughout.
+--
+-- Tables created:
+--   events               — calendar events + recurrence templates
+--   vaccines             — child vaccine records (status, lot_number, administered_by)
+--   medical_appointments — child appointments
+--   sports               — sport registrations and schedules
+--   registrations        — camp and program registrations
+--   payments             — payment ledger
+--   categories           — 8 seeded built-ins + unlimited custom
+--   share_tokens         — read-only calendar share tokens
+--   pending_imports      — email scan queue (human review before commit)
+--   pets                 — pet profiles (seeded: Otis, Athena, Persephone)
+--   pet_vet_appointments — vet appointment records per pet
+--   pet_medications      — medication records per pet
+--   pet_grooming         — grooming records per pet
+--   pet_vaccines         — pet vaccine records (status, lot_number, administered_by)
+--
+-- v1.0  Initial schema (events, vaccines, medical, sports, registrations, payments)
+-- v1.2  Recurrence columns on events
+-- v1.3  pending_imports, share_tokens, categories
+-- v1.4  pets, pet_vet_appointments, pet_medications, pet_grooming
+-- v1.5  pet_vaccines; vaccines extended with status/administered_by/lot_number
 
 -- ─── Events ───────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS events (

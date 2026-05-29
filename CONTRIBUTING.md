@@ -62,13 +62,25 @@ Edit `client/src/lib/children.ts`. Each child needs:
 
 Also add the hex colour to the `CHILD_COLORS` map in `SharedCalendar.tsx`.
 
+The `@mention` parser in `server/emailExtractor.ts` reads from the same `CHILDREN` constant — prefix-matching is automatic once you add the child there.
+
+## Adding a New Pet
+
+Add a row to the `pets` table in Supabase (or edit the seed data in `migration.sql`). Pets are data-driven — no code changes needed in `Pets.tsx` unless you want to change the UI.
+
+To associate a pet color with the Family Calendar, add an entry to the `PET_COLORS` map in `SharedCalendar.tsx`.
+
+The `@mention` parser in `server/emailExtractor.ts` fetches pet names from Supabase at runtime — new pets are picked up automatically.
+
 ## Categories
 
 Built-in category IDs are in `client/src/lib/categories.ts` (`BUILTIN_IDS`). The `Categories` page prevents deletion of built-ins by checking against this list on the frontend. The backend does not enforce this — if you want server-side protection, add a check in the DELETE route in `routes.ts`.
 
+Currently protected built-ins: `school`, `sports`, `medical`, `camp`, `family`, `payment`, `other`. Note that `pets` is seeded in the database but is not in `BUILTIN_IDS` — add it there if you want to protect it from accidental deletion.
+
 ## Auth
 
-Auth is a single shared password stored in the `APP_PASSWORD` environment variable (default: checked against `bieri2026`). The client receives a base64 token on login and stores it in the URL query param `?t=`. This is intentional — `localStorage` and `sessionStorage` are blocked inside Perplexity's sandboxed iframe environment. On a self-hosted deployment, you could replace this with a proper cookie-based session if preferred.
+Auth is a single shared password stored in the `APP_PASSWORD` environment variable (default: `bieri2026`). The client receives a base64 token on login and stores it in the URL query param `?t=`. This is intentional — `localStorage` and `sessionStorage` are blocked inside Perplexity's sandboxed iframe environment. On a self-hosted deployment, you could replace this with a proper cookie-based session if preferred.
 
 ## Code Style
 
@@ -82,15 +94,46 @@ Auth is a single shared password stored in the `APP_PASSWORD` environment variab
 
 The scanner lives in two places:
 
-- **`server/emailExtractor.ts`** — the LLM extraction logic. Takes raw email fields, calls `POST https://api.perplexity.ai/chat/completions` with the `sonar` model, parses the JSON response into `ExtractedItem[]`. If the API key is missing or the call fails, `fallbackExtract()` runs a regex pass instead.
+- **`server/emailExtractor.ts`** — tag parsing and LLM extraction logic. The `#TAG @Name` fast-path runs first (instant, no LLM). If no tag is found, calls `POST https://api.perplexity.ai/chat/completions` with the `sonar` model. If the API key is missing or the call fails, `fallbackExtract()` runs a regex pass instead.
 - **`scripts/gmail_scan.py`** — the standalone Python script that talks to Gmail via the `external-tool` CLI and POSTs each email to `/api/inbox/scan`. This is what the daily cron runs.
 
-### Adding or changing subject-line tags
+### Flag syntax (`#TAG @Name`)
 
-Tags are parsed in `server/emailExtractor.ts` in the `parseTagFromSubject()` function (to be added — currently the tag logic lives in the scan script). To add a new tag:
+The current subject-line syntax is `#TAG @Name1 @Name2 rest of subject`:
 
-1. Add it to the `TAG_MAP` in `emailExtractor.ts`
-2. Add it to the `TAG_MAP` in `scripts/gmail_scan.py`
+```
+#CAMP @Airlie VA Techniques Summer Camp
+#SPORT @Cole @Greta soccer practice Tue/Thu
+#MED @Clara dentist June 3 2pm
+#PAY @Heidi swim lessons $120 due June 1
+#PET @Otis annual vaccines due
+```
+
+Rules:
+- `#TAG` can appear anywhere in the subject (not just the start)
+- `@Name` prefix-matches children AND pets (e.g. `@Air` → Airlie, `@Oth` → Otis)
+- Everything that isn't a `#TAG` or `@mention` becomes the clean item title
+- Tags are case-insensitive
+
+### Supported tags
+
+| Tag | Category | Type |
+|---|---|---|
+| `#CAMP` | camp | registration |
+| `#SPORT` | sports | event |
+| `#SCHOOL` | school | event |
+| `#MED` | medical | appointment |
+| `#PAY` | payment | payment |
+| `#REG` | other | registration |
+| `#PET` | pets | appointment |
+| `#FAM` | family | event |
+
+### Adding or changing tags
+
+To add a new tag:
+
+1. Add it to `TAG_MAP` in `server/emailExtractor.ts`
+2. Add it to `TAG_MAP` in `scripts/gmail_scan.py`
 3. Document it in `docs/EMAIL_SCANNER.md`
 
 ### Updating the Gmail search queries
@@ -100,6 +143,22 @@ The queries are in `scripts/gmail_scan.py` under `SEARCH_QUERIES`. Keep them bro
 ### Platform migration for Gmail
 
 See `docs/EMAIL_SCANNER.md` — Platform Migration section for Gmail API OAuth2, Postmark webhook, and IMAP alternatives that don't depend on the Perplexity `external-tool` CLI.
+
+---
+
+## Vaccine Tracker
+
+### Children (`vaccines` table)
+
+Columns: `id`, `child_id`, `name`, `date_given`, `next_due`, `status`, `provider`, `administered_by`, `lot_number`, `notes`
+
+Valid status values: `completed` | `scheduled` | `overdue` | `not_required` | `declined`
+
+Overdue detection is automatic on the Medical page — any record with status `scheduled` and a `next_due` date in the past is displayed as `overdue` with a red badge.
+
+### Pets (`pet_vaccines` table)
+
+Same column structure as `vaccines` but with `pet_id` instead of `child_id`. The Pets page shows a red badge on the Vaccines tab when any vaccine is overdue. API routes: `GET/POST/PUT/DELETE /api/pet-vaccines`.
 
 ---
 

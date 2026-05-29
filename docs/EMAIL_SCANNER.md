@@ -1,6 +1,6 @@
 # Email Scanner — Bieri Family Hub
 
-The email scanner automatically monitors a dedicated Gmail inbox, extracts structured calendar items (events, appointments, payments, registrations) using an LLM, and queues them in the Family Hub for human review.
+The email scanner automatically monitors a dedicated Gmail inbox, extracts structured calendar items (events, appointments, payments, registrations) using a tag parser and/or LLM, and queues them in the Family Hub for human review.
 
 ---
 
@@ -17,12 +17,14 @@ Daily cron (7am EDT)
     │
     ├── scripts/gmail_scan.py
     │       │
-    │       ├── [TAG] in subject? ──→ Tag parser (instant, no LLM)
+    │       ├── #TAG in subject? ──→ Fast-path parser (instant, no LLM)
+    │       │                         └── @Name mentions → child_ids / pet_ids
     │       │
     │       └── No tag? ──────────→ Perplexity sonar LLM extraction
+    │                                 └── Regex fallback if API key missing
     │
     ▼
-POST /api/inbox/scan  (Express backend)
+POST /api/inbox/scan  (Express backend → emailExtractor.ts)
     │
     ▼
 pending_imports  (Supabase table)
@@ -31,7 +33,7 @@ pending_imports  (Supabase table)
 Inbox page in app  ──→  Accept / Skip each item
     │
     ▼
-Committed to events / medical_appointments / payments / registrations
+Committed to events / medical_appointments / payments / registrations / pets
 ```
 
 ---
@@ -44,40 +46,62 @@ The scanner uses a **dedicated** Gmail address (`bieri.family.hub@gmail.com`), n
 
 | Sender | How | Example subject |
 |---|---|---|
-| You (manual forward) | Forward from your inbox | `[CAMP] Airlie — Blue Ridge Summer` |
-| Your wife (manual forward) | Forward from her inbox | `[PAY] Cole soccer fee $85` |
-| School / coach (direct) | Give them the address | `[SCHOOL] Field trip permission slip` |
-| Camp / program (direct) | Give them the address | `[CAMP] Registration deadline June 1` |
+| You (manual forward) | Forward from your inbox | `#CAMP @Airlie Blue Ridge Summer` |
+| Your wife (manual forward) | Forward from her inbox | `#PAY @Cole soccer fee $85` |
+| School / coach (direct) | Give them the address | `#SCHOOL field trip permission slip` |
+| Camp / program (direct) | Give them the address | `#CAMP registration deadline June 1` |
 
 ---
 
-## Subject-Line Tags
+## Subject-Line Flag Syntax
 
-Tags in the subject line **skip the LLM entirely** — classification is instant and always correct.
+The current syntax is `#TAG @Name1 @Name2 rest of subject`. Tags and mentions can appear **anywhere** in the subject — they don't need to be at the start.
 
-| Tag | Event type | Category | Example |
+### Tags
+
+Tags **skip the LLM entirely** — classification is instant and always correct.
+
+| Tag | Category | Type | Example |
 |---|---|---|---|
-| `[CAMP]` | registration | camp | `[CAMP] Airlie — Blue Ridge Summer Session` |
-| `[SPORT]` | event | sports | `[SPORT] Cole soccer practice Tue/Thu` |
-| `[SCHOOL]` | event | school | `[SCHOOL] Greta field trip May 15` |
-| `[MED]` | appointment | medical | `[MED] Clara dentist June 3 2pm` |
-| `[PAY]` | payment | payment | `[PAY] Heidi swim lessons $120 due June 1` |
-| `[REG]` | registration | other | `[REG] Clara dance enrollment deadline` |
+| `#CAMP` | camp | registration | `#CAMP @Airlie VA Techniques Summer Session` |
+| `#SPORT` | sports | event | `#SPORT @Cole @Greta soccer practice Tue/Thu` |
+| `#SCHOOL` | school | event | `#SCHOOL @Greta field trip May 15` |
+| `#MED` | medical | appointment | `#MED @Clara dentist June 3 2pm` |
+| `#PAY` | payment | payment | `#PAY @Heidi swim lessons $120 due June 1` |
+| `#REG` | other | registration | `#REG @Clara dance enrollment deadline` |
+| `#PET` | pets | appointment | `#PET @Otis annual vaccines due` |
+| `#FAM` | family | event | `#FAM summer vacation July 4–10` |
 | *(none)* | inferred | inferred | Full LLM extraction (~2s) |
 
-Tags are case-insensitive: `[camp]`, `[CAMP]`, and `[Camp]` all work.
+Tags are case-insensitive: `#camp`, `#CAMP`, and `#Camp` all work.
 
-### Child name detection
+### @Mentions
 
-The scanner also checks the subject for child first names and auto-assigns `child_ids`:
+`@mentions` **prefix-match** against both children and pets. You only need enough characters to be unambiguous:
+
+| Mention | Resolves to | Type |
+|---|---|---|
+| `@Cole` or `@Col` | Cole | child |
+| `@Greta` or `@Gre` | Greta | child |
+| `@Airlie` or `@Air` | Airlie | child |
+| `@Clara` or `@Cla` | Clara | child |
+| `@Heidi` or `@Hei` | Heidi | child |
+| `@Daisy` or `@Dai` | Daisy | child |
+| `@Otis` or `@Ot` | Otis (Bernese Mountain Dog) | pet |
+| `@Athena` or `@Ath` | Athena (Russian Blue cat) | pet |
+| `@Persephone` or `@Per` | Persephone (Black Bombay cat) | pet |
+
+Multiple mentions are supported: `#SPORT @Cole @Greta soccer`.
+
+### Title extraction
+
+Everything in the subject that is **not** a `#TAG` or `@mention` becomes the clean item title. Given:
 
 ```
-"[CAMP] Airlie Blue Ridge"       → child_ids: ["airlie"]
-"[PAY] Cole + Greta soccer"      → child_ids: ["cole", "greta"]
-"[SPORT] practice schedule"      → child_ids: []  (family-wide)
+#CAMP @Airlie VA Techniques: Important Summer Camp Details
 ```
 
-Names checked: Cole, Greta, Airlie, Clara, Heidi, Daisy (case-insensitive).
+The extracted title is: `VA Techniques: Important Summer Camp Details`
 
 ---
 
@@ -87,10 +111,10 @@ Names checked: Cole, Greta, Airlie, Clara, Heidi, Daisy (case-insensitive).
 
 **What it does:**
 1. Connects to Gmail via the `gcal` external-tool connector
-2. Fetches unread emails from the dedicated inbox
-3. For each email — checks for a subject tag, then either fast-paths or calls the LLM
+2. Searches the dedicated inbox using a set of broad keyword queries
+3. For each email — checks for a `#TAG`, then either fast-paths or calls the LLM
 4. POSTs to `POST /api/inbox/scan` on the Express backend
-5. The backend deduplicates by `gmail_id` (already-processed emails are skipped)
+5. The backend deduplicates by `gmail_id` (already-processed emails return `{skipped: true}`)
 6. Extracted items land in the `pending_imports` Supabase table
 
 **Running manually** (from the Perplexity Computer session):
@@ -108,7 +132,7 @@ python3 scripts/gmail_scan.py
 
 **Running on a self-hosted server** (platform-independent version):
 
-If you've migrated off Perplexity, replace the `call_tool()` function with a direct Gmail API call using a service account or OAuth2 credentials. The rest of the script is standard Python with no Perplexity dependencies. See [Platform Migration](#platform-migration) below.
+Replace the `call_tool()` function with a direct Gmail API call using a service account or OAuth2 credentials. The rest of the script is standard Python with no Perplexity dependencies. See [Platform Migration](#platform-migration) below.
 
 ---
 
@@ -119,11 +143,11 @@ The scan runs automatically every day at **7:00 AM EDT (11:00 UTC)** via a Perpl
 **Cron ID:** `1327ea9d`  
 **Schedule:** `0 11 * * *` (UTC)  
 **What happens:**
-1. Gmail is searched for unread emails
+1. Gmail is searched for unread emails matching family-relevant keywords
 2. Each email is processed through the tag parser / LLM
-3. Items are queued in `pending_imports`
-4. If new items were found, an in-app notification is sent
-5. If nothing new, the run ends silently
+3. New items are queued in `pending_imports`
+4. If new items were found, an in-app notification is sent: "Family Hub — N new inbox items to review"
+5. If nothing new (all skipped or 0 results), the run ends silently
 
 ---
 
@@ -132,8 +156,8 @@ The scan runs automatically every day at **7:00 AM EDT (11:00 UTC)** via a Perpl
 In the app, navigate to **Inbox** (sidebar). Each scanned email appears as a card showing:
 
 - Email subject, sender, date
-- Each extracted item with type, date, amount, child tags, confidence level, and the exact quote from the email that triggered it
-- **Add** — commits the item to the right module (Schedule, Medical, Payments, or Camps)
+- Each extracted item with type, date, amount, child/pet tags, confidence level, and the exact quote from the email that triggered it
+- **Add** — commits the item to the right module (Schedule, Medical, Payments, Camps, or Pets)
 - **Skip** — dismisses the item without saving
 - **Dismiss all** — ignores the entire email
 
@@ -143,7 +167,7 @@ Once all items in an email are accepted or skipped, it disappears from the queue
 
 ## Platform Migration
 
-If you move off Perplexity, the Gmail integration needs to be replaced. Two options:
+If you move off Perplexity, the Gmail integration needs to be replaced. Three options:
 
 ### Option A — Gmail API with OAuth2 (recommended)
 
@@ -169,8 +193,6 @@ Set up OAuth2 credentials at [console.cloud.google.com](https://console.cloud.go
 ### Option B — Postmark inbound webhook (no polling)
 
 Instead of polling Gmail, set up Postmark to receive emails at `hub@yourdomain.com` and fire a webhook to `POST /api/inbox/scan` on your server. No cron needed — emails are processed the moment they arrive.
-
-See `DEPLOYMENT.md` → Option C for Postmark setup details.
 
 ### Option C — IMAP (universal, no Google API needed)
 
@@ -202,7 +224,9 @@ Without `PPLX_API_KEY`, untagged emails fall back to regex extraction (lower acc
 
 ---
 
-## Supabase Table
+## Supabase Tables
+
+### `pending_imports`
 
 ```sql
 CREATE TABLE pending_imports (
@@ -220,6 +244,8 @@ CREATE TABLE pending_imports (
 );
 ```
 
+### `ExtractedItem` shape
+
 The `extracted` column is a JSONB array of `ExtractedItem` objects:
 
 ```ts
@@ -231,6 +257,7 @@ interface ExtractedItem {
   time?: string;        // HH:mm 24h
   amount?: string;      // "$85"
   child_ids?: string[]; // ["cole", "airlie"]
+  pet_ids?: string[];   // ["pet-otis"]
   category?: string;    // matches categories table
   notes?: string;
   confidence: "high" | "medium" | "low";
