@@ -13,7 +13,7 @@ import json
 import subprocess
 import sys
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 # The deployed app backend URL (uses Perplexity proxy)
@@ -22,8 +22,16 @@ APP_API = os.environ.get(
     "https://sites.pplx.app/sites/proxy/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJwcmVmaXgiOiJ3ZWIvZGlyZWN0LWZpbGVzL2NvbXB1dGVyLzkyZDI5Mzg2LWFmNzEtNDJhNC05ZjdiLTU0NDNmZTg1MzVmOC9mYW1pbHktYWRtaW4vIiwic2lkIjoiOTJkMjkzODYtYWY3MS00MmE0LTlmN2ItNTQ0M2ZlODUzNWY4IiwiZXhwIjoxNzgwMTY5NjUzfQ.h0wG_i0-wgPkg2J9lm3KQpJH0uNU9PYF8PHHgthPGS8"
 )
 
+# Look-back window: pick up anything from the last N days.
+# The /api/inbox/scan endpoint deduplicates by gmail_id, so re-scanning
+# already-processed emails is harmless — they just return {skipped: true}.
+LOOK_BACK_DAYS = int(os.environ.get("GMAIL_LOOKBACK_DAYS", "3"))
+
+# Build the dynamic date-bounded query at runtime so it never goes stale.
+_since = (datetime.now(timezone.utc) - timedelta(days=LOOK_BACK_DAYS)).strftime("%Y/%m/%d")
+
 # Search queries — broad enough to catch relevant emails, specific enough
-# not to drown in noise. We look back ~3 days to catch anything missed.
+# not to drown in noise.
 SEARCH_QUERIES = [
     "registration deadline",
     "camp registration",
@@ -38,7 +46,7 @@ SEARCH_QUERIES = [
     "doctor appointment",
     "summer program",
     "enrollment",
-    "after:2026-05-27T00:00:00-04:00 (registration OR deadline OR payment OR appointment OR schedule)",
+    f"after:{_since} (registration OR deadline OR payment OR appointment OR schedule)",
 ]
 
 
