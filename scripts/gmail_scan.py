@@ -16,11 +16,12 @@ import os
 from datetime import datetime, timedelta, timezone
 
 # ─── Config ───────────────────────────────────────────────────────────────────
-# The deployed app backend URL (uses Perplexity proxy)
-APP_API = os.environ.get(
-    "FAMILY_HUB_API",
-    "https://sites.pplx.app/sites/proxy/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJwcmVmaXgiOiJ3ZWIvZGlyZWN0LWZpbGVzL2NvbXB1dGVyLzkyZDI5Mzg2LWFmNzEtNDJhNC05ZjdiLTU0NDNmZTg1MzVmOC9mYW1pbHktYWRtaW4vIiwic2lkIjoiOTJkMjkzODYtYWY3MS00MmE0LTlmN2ItNTQ0M2ZlODUzNWY4IiwiZXhwIjoxNzgwMTY5NjUzfQ.h0wG_i0-wgPkg2J9lm3KQpJH0uNU9PYF8PHHgthPGS8"
-)
+# The Family Hub backend URL.
+# - In Perplexity Computer cron sessions: always use http://localhost:5000
+#   (the server is started fresh each cron run — never use the proxy URL,
+#    which is session-scoped and expires after ~24h).
+# - When self-hosting: set FAMILY_HUB_API to your deployed backend URL.
+APP_API = os.environ.get("FAMILY_HUB_API", "http://localhost:5000")
 
 # Look-back window: pick up anything from the last N days.
 # The /api/inbox/scan endpoint deduplicates by gmail_id, so re-scanning
