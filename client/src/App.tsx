@@ -28,8 +28,8 @@ function AppRoutes() {
   if (!authed) return <Login />;
 
   return (
-    <Layout>
-      <Router hook={useHashLocation}>
+    <Router hook={useHashLocation}>
+      <Layout>
         <Switch>
           <Route path="/" component={Dashboard} />
           <Route path="/schedule" component={Schedule} />
@@ -43,8 +43,8 @@ function AppRoutes() {
           <Route path="/pets" component={Pets} />
           <Route component={NotFound} />
         </Switch>
-      </Router>
-    </Layout>
+      </Layout>
+    </Router>
   );
 }
 
