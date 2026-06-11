@@ -2,6 +2,7 @@ services:
   - type: web
     name: bieri-family-hub
     runtime: node
+    nodeVersion: 20.19.0
     buildCommand: npm ci --include=dev && npm run build
     startCommand: node dist/index.cjs
     healthCheckPath: /api/health
