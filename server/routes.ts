@@ -604,6 +604,77 @@ function expandRecurring(ev: any, from?: string, to?: string): any[] {
   return results;
 }
 
+// ─── MESSAGES ────────────────────────────────────────────────────────────────
+// Unified feed: in-app posts (channel='app') + inbound SMS (channel='sms')
+export function registerMessageRoutes(app: Express) {
+
+  // GET /api/messages — latest 100, newest first
+  app.get("/api/messages", async (_req, res) => {
+    const { data, error } = await supabase
+      .from("messages")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(100);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+  });
+
+  // GET /api/messages/count?since=ISO — count messages newer than timestamp
+  // Used for the nav badge (stored in localStorage on the client)
+  app.get("/api/messages/count", async (req, res) => {
+    const since = (req.query.since as string) || new Date(0).toISOString();
+    const { count, error } = await supabase
+      .from("messages")
+      .select("*", { count: "exact", head: true })
+      .gt("created_at", since);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ count: count || 0 });
+  });
+
+  // POST /api/messages — post an in-app message
+  // Body: { author: string, body: string }
+  app.post("/api/messages", async (req, res) => {
+    const { author, body } = req.body;
+    if (!author?.trim() || !body?.trim())
+      return res.status(400).json({ error: "author and body are required" });
+    const { data, error } = await supabase
+      .from("messages")
+      .insert({ id: nanoid(), channel: "app", author: author.trim(), body: body.trim() })
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  // POST /api/sms/inbound — Twilio webhook for inbound SMS
+  // Twilio posts application/x-www-form-urlencoded with From, Body, etc.
+  app.post("/api/sms/inbound", async (req, res) => {
+    const from: string = req.body.From || "";
+    const body: string = req.body.Body || "";
+    if (!from || !body) {
+      // Respond with empty TwiML so Twilio doesn't retry
+      res.set("Content-Type", "text/xml");
+      return res.send("<?xml version='1.0' encoding='UTF-8'?><Response></Response>");
+    }
+
+    // Resolve display name from phone_contacts table, fall back to raw number
+    const { data: contact } = await supabase
+      .from("phone_contacts")
+      .select("name")
+      .eq("phone", from)
+      .single();
+    const author = contact?.name || from;
+
+    await supabase
+      .from("messages")
+      .insert({ id: nanoid(), channel: "sms", author, body: body.trim(), phone_from: from });
+
+    // Respond with empty TwiML — no auto-reply
+    res.set("Content-Type", "text/xml");
+    res.send("<?xml version='1.0' encoding='UTF-8'?><Response></Response>");
+  });
+}
+
 // ─── INBOX / PENDING IMPORTS ────────────────────────────────────────────────
 // These routes handle the email extraction pipeline:
 //   POST /api/inbox/scan        — accepts raw email data, runs LLM extraction, saves to pending_imports

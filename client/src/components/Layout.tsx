@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import {
   LayoutDashboard, Calendar, Stethoscope, Trophy,
-  Tent, CreditCard, LogOut, Menu, X, Moon, Sun, Tag, CalendarDays, Inbox, PawPrint
+  Tent, CreditCard, LogOut, Menu, X, Moon, Sun, Tag, CalendarDays, Inbox, PawPrint, MessageSquare
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -14,13 +14,14 @@ const NAV = [
   { href: "/",               label: "Dashboard",      icon: LayoutDashboard },
   { href: "/family-calendar",label: "Family Calendar", icon: CalendarDays },
   { href: "/schedule",       label: "Schedule",       icon: Calendar },
-  { href: "/medical",        label: "Medical",        icon: Stethoscope },
+  { href: "/medical",        label: "Medical",        icon: Stethoscope,  badgeKey: "medical" },
   { href: "/sports",         label: "Sports",         icon: Trophy },
-  { href: "/camps",          label: "Camps & Reg.",   icon: Tent },
-  { href: "/payments",       label: "Payments",       icon: CreditCard },
+  { href: "/camps",          label: "Camps & Reg.",   icon: Tent,         badgeKey: "camps" },
+  { href: "/payments",       label: "Payments",       icon: CreditCard,   badgeKey: "payments" },
   { href: "/categories",     label: "Categories",     icon: Tag },
   { href: "/pets",           label: "Pets",            icon: PawPrint },
-  { href: "/inbox",          label: "Inbox",           icon: Inbox, badge: true },
+  { href: "/inbox",          label: "Inbox",           icon: Inbox,        badgeKey: "inbox" },
+  { href: "/messages",       label: "Messages",        icon: MessageSquare, badgeKey: "messages" },
 ];
 
 function useDark() {
@@ -35,13 +36,62 @@ function useDark() {
   return { dark, toggle };
 }
 
-function useInboxCount() {
-  const { data } = useQuery({
+const LS_MSG_KEY = "familyHub_lastReadMessages";
+function getLastReadMessages() {
+  return localStorage.getItem(LS_MSG_KEY) || new Date(0).toISOString();
+}
+
+function useNavBadges(): Record<string, number> {
+  const { data: inboxData } = useQuery({
     queryKey: ["/api/inbox/count"],
     queryFn: async () => (await apiRequest("GET", "/api/inbox/count")).json(),
     refetchInterval: 60_000,
   });
-  return (data as any)?.count || 0;
+  const { data: payments = [] } = useQuery<any[]>({
+    queryKey: ["/api/payments"],
+    queryFn: async () => (await apiRequest("GET", "/api/payments")).json(),
+    refetchInterval: 5 * 60_000,
+  });
+  const { data: appointments = [] } = useQuery<any[]>({
+    queryKey: ["/api/appointments"],
+    queryFn: async () => (await apiRequest("GET", "/api/appointments")).json(),
+    refetchInterval: 5 * 60_000,
+  });
+  const { data: registrations = [] } = useQuery<any[]>({
+    queryKey: ["/api/registrations"],
+    queryFn: async () => (await apiRequest("GET", "/api/registrations")).json(),
+    refetchInterval: 5 * 60_000,
+  });
+  const { data: msgCountData } = useQuery({
+    queryKey: ["/api/messages/count"],
+    queryFn: async () => {
+      const since = encodeURIComponent(getLastReadMessages());
+      return (await apiRequest("GET", `/api/messages/count?since=${since}`)).json();
+    },
+    refetchInterval: 30_000,
+  });
+
+  const today = new Date();
+  const in30 = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const todayStr = today.toISOString().split("T")[0];
+  const in30Str = in30.toISOString().split("T")[0];
+
+  const overduePayments = payments.filter((p: any) => p.status === "overdue").length;
+  const upcomingAppts = appointments.filter((a: any) =>
+    !a.completed && a.date && a.date >= todayStr
+  ).length;
+  const urgentRegs = registrations.filter((r: any) =>
+    r.deadline && r.deadline >= todayStr && r.deadline <= in30Str &&
+    r.status !== "confirmed" && r.status !== "cancelled"
+  ).length;
+
+  return {
+    inbox:    (inboxData as any)?.count || 0,
+    payments: overduePayments,
+    medical:  upcomingAppts,
+    camps:    urgentRegs,
+    messages: (msgCountData as any)?.count || 0,
+  };
 }
 
 export default function Layout({ children }: { children: ReactNode }) {
@@ -49,7 +99,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const [open, setOpen] = useState(false);
   const { dark, toggle } = useDark();
-  const inboxCount = useInboxCount();
+  const badges = useNavBadges();
 
   const sidebar = (
     <div className="flex flex-col h-full">
@@ -67,9 +117,9 @@ export default function Layout({ children }: { children: ReactNode }) {
 
       {/* Nav */}
       <nav className="flex-1 px-2 py-3 space-y-0.5">
-        {NAV.map(({ href, label, icon: Icon, badge }) => {
+        {NAV.map(({ href, label, icon: Icon, badgeKey }) => {
           const active = href === "/" ? location === "/" : location.startsWith(href);
-          const showBadge = badge && inboxCount > 0;
+          const badgeCount = badgeKey ? (badges[badgeKey] || 0) : 0;
           return (
             <Link key={href} href={href}>
               <a
@@ -84,12 +134,12 @@ export default function Layout({ children }: { children: ReactNode }) {
               >
                 <Icon size={16} />
                 <span className="flex-1">{label}</span>
-                {showBadge && (
+                {badgeCount > 0 && (
                   <span className={cn(
                     "text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center leading-none",
                     active ? "bg-white/30 text-white" : "bg-primary text-primary-foreground"
                   )}>
-                    {inboxCount}
+                    {badgeCount}
                   </span>
                 )}
               </a>

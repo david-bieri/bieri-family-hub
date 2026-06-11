@@ -17,6 +17,7 @@ import FamilyCalendar from "./pages/FamilyCalendar";
 import SharedCalendar from "./pages/SharedCalendar";
 import InboxImports from "./pages/InboxImports";
 import Pets from "./pages/Pets";
+import Messages from "./pages/Messages";
 import NotFound from "./pages/not-found";
 
 // Check for share token in query params (public read-only calendar link)
@@ -41,6 +42,7 @@ function AppRoutes() {
           <Route path="/family-calendar" component={FamilyCalendar} />
           <Route path="/inbox" component={InboxImports} />
           <Route path="/pets" component={Pets} />
+          <Route path="/messages" component={Messages} />
           <Route component={NotFound} />
         </Switch>
       </Layout>

@@ -1,7 +1,7 @@
 import "dotenv/config";
 import express, { Response, NextFunction } from 'express';
 import type { Request } from 'express';
-import { registerRoutes, registerInboxRoutes } from "./routes";
+import { registerRoutes, registerInboxRoutes, registerMessageRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
 
@@ -64,6 +64,7 @@ app.use((req, res, next) => {
 (async () => {
   await registerRoutes(httpServer, app);
   registerInboxRoutes(app);
+  registerMessageRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

@@ -1,12 +1,23 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
-import { CHILDREN, getAge, getFullAge } from "@/lib/children";
+import { CHILDREN, getFullAge } from "@/lib/children";
 import { ChildBadge } from "@/components/ChildBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Calendar, CreditCard, Stethoscope, Tent, Trophy, AlertCircle } from "lucide-react";
+import { Calendar, CreditCard, Stethoscope, Tent, AlertCircle, PawPrint } from "lucide-react";
 import { format, isAfter, isBefore, addDays, parseISO } from "date-fns";
+
+interface Pet {
+  id: string;
+  name: string;
+  species: string;
+  breed: string;
+  dob?: string;
+  color: string;
+  notes?: string;
+}
 
 function formatDate(d: string) {
   try { return format(parseISO(d), "MMM d"); } catch { return d; }
@@ -32,6 +43,10 @@ export default function Dashboard() {
   const { data: sports = [] } = useQuery({
     queryKey: ["/api/sports"],
     queryFn: async () => (await apiRequest("GET", "/api/sports")).json(),
+  });
+  const { data: pets = [] } = useQuery<Pet[]>({
+    queryKey: ["/api/pets"],
+    queryFn: async () => (await apiRequest("GET", "/api/pets")).json(),
   });
 
   const today = new Date();
@@ -97,6 +112,38 @@ export default function Dashboard() {
           })}
         </div>
       </div>
+
+      {/* Pet cards */}
+      {pets.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
+            <PawPrint size={14} className="text-amber-700" />
+            The Pets
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            {pets.map(pet => {
+              const emoji = pet.species === "dog" ? "🐕" : pet.species === "cat" ? "🐈" : "🐾";
+              const speciesLabel = pet.breed || pet.species;
+              return (
+                <Link key={pet.id} href="/pets">
+                  <a className="block">
+                    <Card className="p-3 text-center hover:shadow-md transition-shadow cursor-pointer">
+                      <div
+                        className="w-10 h-10 rounded-lg flex items-center justify-center text-xl mx-auto mb-2 shadow-sm"
+                        style={{ backgroundColor: pet.color }}
+                      >
+                        {emoji}
+                      </div>
+                      <div className="font-semibold text-sm">{pet.name}</div>
+                      <div className="text-xs text-muted-foreground capitalize truncate">{speciesLabel}</div>
+                    </Card>
+                  </a>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Upcoming events */}
