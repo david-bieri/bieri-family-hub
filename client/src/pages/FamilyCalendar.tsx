@@ -21,9 +21,20 @@ const TYPE_LABELS: Record<string, string> = {
   event: "Event", appointment: "Appointment", payment: "Payment Due", registration: "Deadline",
 };
 
+function getHashChildParam(): string | null {
+  // Hash is like #/family-calendar?child=cole
+  const hash = window.location.hash; // e.g. "#/family-calendar?child=cole"
+  const qIndex = hash.indexOf("?");
+  if (qIndex === -1) return null;
+  return new URLSearchParams(hash.slice(qIndex + 1)).get("child");
+}
+
 export default function FamilyCalendar() {
   const [month, setMonth] = useState(new Date());
-  const [filterChildren, setFilterChildren] = useState<string[]>([]);
+  const [filterChildren, setFilterChildren] = useState<string[]>(() => {
+    const c = getHashChildParam();
+    return c ? [c] : [];
+  });
   const [filterTypes, setFilterTypes] = useState<string[]>([]);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareToken, setShareToken] = useState<string | null>(null);

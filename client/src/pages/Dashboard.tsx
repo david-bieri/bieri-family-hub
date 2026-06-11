@@ -94,20 +94,24 @@ export default function Dashboard() {
           {CHILDREN.map(child => {
             const childSports = sports.filter((s: any) => s.child_id === child.id && s.active);
             return (
-              <Card key={child.id} className="p-3 text-center" data-testid={`card-child-${child.id}`}>
-                <div className={`w-10 h-10 rounded-full ${child.colorClass} flex items-center justify-center text-white font-bold text-base mx-auto mb-2`}>
-                  {child.name[0]}
-                </div>
-                <div className="font-semibold text-sm">{child.name}</div>
-                <div className="text-xs text-muted-foreground">{getFullAge(child.birthdate)}</div>
-                {childSports.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1 justify-center">
-                    {childSports.slice(0, 2).map((s: any) => (
-                      <span key={s.id} className="text-[10px] bg-muted px-1.5 py-0.5 rounded-full">{s.sport_name}</span>
-                    ))}
-                  </div>
-                )}
-              </Card>
+              <Link key={child.id} href={`/family-calendar?child=${child.id}`}>
+                <a className="block" data-testid={`card-child-${child.id}`}>
+                  <Card className="p-3 text-center hover:shadow-md transition-shadow cursor-pointer">
+                    <div className={`w-10 h-10 rounded-full ${child.colorClass} flex items-center justify-center text-white font-bold text-base mx-auto mb-2`}>
+                      {child.name[0]}
+                    </div>
+                    <div className="font-semibold text-sm">{child.name}</div>
+                    <div className="text-xs text-muted-foreground">{getFullAge(child.birthdate)}</div>
+                    {childSports.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1 justify-center">
+                        {childSports.slice(0, 2).map((s: any) => (
+                          <span key={s.id} className="text-[10px] bg-muted px-1.5 py-0.5 rounded-full">{s.sport_name}</span>
+                        ))}
+                      </div>
+                    )}
+                  </Card>
+                </a>
+              </Link>
             );
           })}
         </div>
