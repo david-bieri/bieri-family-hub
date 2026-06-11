@@ -24,16 +24,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function login(pw: string) {
+    // Client-side check first — works in static deploy (no Express server needed)
+    const token = btoa(pw);
+    const knownToken = "YmllcmkyMDI2"; // btoa('bieri2026')
+    if (token === knownToken) {
+      setAuthed(true);
+      const url = new URL(window.location.href);
+      url.searchParams.set("t", token);
+      window.history.replaceState({}, "", url.toString());
+      return true;
+    }
+    // Fallback: try server (works when Express is running)
     try {
-      const res = await apiRequest("POST", "/api/auth/login", { password: pw });
-      const data = await res.json();
-      if (data.ok) {
-        setAuthed(true);
-        // Persist token in URL so page refreshes work
-        const url = new URL(window.location.href);
-        url.searchParams.set("t", data.token);
-        window.history.replaceState({}, "", url.toString());
-        return true;
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: pw }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.ok) {
+          setAuthed(true);
+          const url = new URL(window.location.href);
+          url.searchParams.set("t", data.token);
+          window.history.replaceState({}, "", url.toString());
+          return true;
+        }
       }
     } catch {}
     return false;
