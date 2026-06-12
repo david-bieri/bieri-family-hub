@@ -38,18 +38,31 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
   app.post("/api/events", async (req, res) => {
     const id = nanoid();
-    const { title, date, time, end_time, child_ids, category, notes, recurring } = req.body;
+    const { title, date, time, end_time, child_ids, category, notes, recurring,
+            is_template, recurrence_type, recurrence_interval, recurrence_days, recurrence_end_date } = req.body;
     const { data, error } = await supabase.from("events").insert([
-      { id, title, date, time, end_time, child_ids: child_ids || [], category: category || "other", notes, recurring: recurring || false }
+      { id, title, date, time, end_time, child_ids: child_ids || [], category: category || "other", notes,
+        recurring: recurring || false,
+        is_template: is_template || false,
+        recurrence_type: recurrence_type || null,
+        recurrence_interval: recurrence_interval || 1,
+        recurrence_days: recurrence_days || null,
+        recurrence_end_date: recurrence_end_date || null }
     ]).select().single();
     if (error) return res.status(500).json({ error: error.message });
     res.json(data);
   });
 
   app.put("/api/events/:id", async (req, res) => {
-    const { title, date, time, end_time, child_ids, category, notes, recurring } = req.body;
+    const { title, date, time, end_time, child_ids, category, notes, recurring,
+            is_template, recurrence_type, recurrence_interval, recurrence_days, recurrence_end_date } = req.body;
     const { data, error } = await supabase.from("events")
-      .update({ title, date, time, end_time, child_ids: child_ids || [], category, notes, recurring })
+      .update({ title, date, time, end_time, child_ids: child_ids || [], category, notes, recurring,
+        is_template: is_template || false,
+        recurrence_type: recurrence_type || null,
+        recurrence_interval: recurrence_interval || 1,
+        recurrence_days: recurrence_days || null,
+        recurrence_end_date: recurrence_end_date || null })
       .eq("id", req.params.id).select().single();
     if (error) return res.status(500).json({ error: error.message });
     res.json(data);

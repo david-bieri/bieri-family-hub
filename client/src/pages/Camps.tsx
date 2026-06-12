@@ -54,10 +54,11 @@ export default function Camps() {
   });
 
   const save = useMutation({
-    mutationFn: async () => {
-      const payload = { ...form, cost: form.cost ? parseFloat(form.cost) : null };
-      return editId
-        ? (await apiRequest("PUT", `/api/registrations/${editId}`, payload)).json()
+    mutationFn: async (directPayload?: any) => {
+      const payload = directPayload || { ...form, cost: form.cost ? parseFloat(form.cost) : null };
+      const id = directPayload?._editId || editId;
+      return id
+        ? (await apiRequest("PUT", `/api/registrations/${id}`, payload)).json()
         : (await apiRequest("POST", "/api/registrations", payload)).json();
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/registrations"] }); setOpen(false); setForm(blank); setEditId(null); },
@@ -153,11 +154,16 @@ export default function Camps() {
               {STATUSES.map(s => (
                 <button key={s}
                   className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${r.status === s ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-muted"}`}
-                  onClick={() => save.mutate()}
-                  onClickCapture={() => {
-                    setEditId(r.id);
-                    setForm({ ...r, status: s, cost: r.cost?.toString() || "", deposit_paid: !!r.deposit_paid,
-                      start_date: r.start_date||"", end_date: r.end_date||"", deadline: r.deadline||"", url: r.url||"" });
+                  onClick={() => {
+                    const payload = {
+                      _editId: r.id,
+                      child_id: r.child_id, program_name: r.program_name, type: r.type,
+                      start_date: r.start_date || "", end_date: r.end_date || "",
+                      deadline: r.deadline || "", status: s,
+                      cost: r.cost ? parseFloat(r.cost) : null,
+                      deposit_paid: !!r.deposit_paid, notes: r.notes || "", url: r.url || "",
+                    };
+                    save.mutate(payload);
                   }}
                 >
                   {STATUS_LABELS[s]}
