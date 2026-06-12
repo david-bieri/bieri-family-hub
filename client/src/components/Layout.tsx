@@ -82,7 +82,7 @@ function useNavBadges(): Record<string, number> {
   ).length;
   const urgentRegs = registrations.filter((r: any) =>
     r.deadline && r.deadline >= todayStr && r.deadline <= in30Str &&
-    r.status !== "confirmed" && r.status !== "cancelled"
+    r.status !== "confirmed" && r.status !== "paid" && r.status !== "cancelled"
   ).length;
 
   return {

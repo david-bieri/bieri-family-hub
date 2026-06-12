@@ -14,16 +14,17 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Pencil, Trash2, ExternalLink, AlertCircle } from "lucide-react";
 import { format, parseISO, isBefore, addDays } from "date-fns";
 
-const STATUSES = ["not_started","in_progress","submitted","confirmed","waitlisted","cancelled"] as const;
+const STATUSES = ["not_started","in_progress","submitted","confirmed","paid","waitlisted","cancelled"] as const;
 const STATUS_LABELS: Record<string, string> = {
   not_started:"Not Started", in_progress:"In Progress", submitted:"Submitted",
-  confirmed:"Confirmed", waitlisted:"Waitlisted", cancelled:"Cancelled",
+  confirmed:"Confirmed", paid:"Paid", waitlisted:"Waitlisted", cancelled:"Cancelled",
 };
 const STATUS_COLORS: Record<string, string> = {
   not_started:"bg-muted text-muted-foreground",
   in_progress:"bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400",
   submitted:"bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400",
   confirmed:"bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400",
+  paid:"bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400",
   waitlisted:"bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-400",
   cancelled:"bg-muted text-muted-foreground line-through",
 };
@@ -71,7 +72,7 @@ export default function Camps() {
     .filter((r: any) => filterChild === "all" || r.child_id === filterChild)
     .filter((r: any) => filterStatus === "all" || r.status === filterStatus);
 
-  const isUrgent = (r: any) => r.deadline && isBefore(parseISO(r.deadline), addDays(today, 14)) && r.status !== "confirmed" && r.status !== "cancelled";
+  const isUrgent = (r: any) => r.deadline && isBefore(parseISO(r.deadline), addDays(today, 14)) && r.status !== "confirmed" && r.status !== "paid" && r.status !== "cancelled";
 
   function openEdit(r: any) {
     setForm({ ...r, cost: r.cost?.toString() || "", deposit_paid: !!r.deposit_paid,

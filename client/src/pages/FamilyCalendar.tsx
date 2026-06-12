@@ -5,8 +5,6 @@ import { CHILDREN } from "@/lib/children";
 import { ChildBadge } from "@/components/ChildBadge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogHeader,
   DialogTitle, DialogFooter
@@ -263,54 +261,71 @@ export default function FamilyCalendar() {
 
           {/* Filter by child */}
           <div className="bg-card border border-border rounded-xl p-4 space-y-2">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Filter by Child</h3>
-            {CHILDREN.map(child => (
-              <label key={child.id} className="flex items-center gap-2 cursor-pointer">
-                <Switch
-                  checked={filterChildren.length === 0 || filterChildren.includes(child.id)}
-                  onCheckedChange={() => {
-                    if (filterChildren.length === 0) {
-                      // Start filtering: show only this child
-                      setFilterChildren(CHILDREN.filter(c => c.id !== child.id).map(c => c.id));
-                    } else {
-                      toggleChild(child.id);
-                    }
-                  }}
-                  id={`filter-${child.id}`}
-                />
-                <ChildBadge childId={child.id} />
-              </label>
-            ))}
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Filter by Child
+              </h3>
+              {filterChildren.length > 0 && (
+                <button className="text-[10px] text-primary hover:underline" onClick={() => setFilterChildren([])}>
+                  Show all
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {CHILDREN.map(child => {
+                const active = filterChildren.includes(child.id);
+                return (
+                  <button
+                    key={child.id}
+                    onClick={() => toggleChild(child.id)}
+                    className={`px-2 py-0.5 rounded-full text-xs font-medium border transition-colors ${
+                      active
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "border-border text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {child.name}
+                  </button>
+                );
+              })}
+            </div>
             {filterChildren.length > 0 && (
-              <Button variant="ghost" size="sm" className="text-xs w-full mt-1" onClick={() => setFilterChildren([])}>
-                Show all
-              </Button>
+              <p className="text-[10px] text-muted-foreground pt-0.5">
+                Showing {filterChildren.length === 1 ? "1 child" : `${filterChildren.length} children`}
+              </p>
             )}
           </div>
 
           {/* Filter by type */}
           <div className="bg-card border border-border rounded-xl p-4 space-y-2">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Filter by Type</h3>
-            {Object.entries(TYPE_LABELS).map(([type, label]) => (
-              <label key={type} className="flex items-center gap-2 cursor-pointer">
-                <Switch
-                  checked={filterTypes.length === 0 || filterTypes.includes(type)}
-                  onCheckedChange={() => {
-                    if (filterTypes.length === 0) {
-                      setFilterTypes(Object.keys(TYPE_LABELS).filter(t => t !== type));
-                    } else {
-                      toggleType(type);
-                    }
-                  }}
-                />
-                <span className="text-xs">{label}</span>
-              </label>
-            ))}
-            {filterTypes.length > 0 && (
-              <Button variant="ghost" size="sm" className="text-xs w-full mt-1" onClick={() => setFilterTypes([])}>
-                Show all types
-              </Button>
-            )}
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Filter by Type
+              </h3>
+              {filterTypes.length > 0 && (
+                <button className="text-[10px] text-primary hover:underline" onClick={() => setFilterTypes([])}>
+                  Show all
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {Object.entries(TYPE_LABELS).map(([type, label]) => {
+                const active = filterTypes.includes(type);
+                return (
+                  <button
+                    key={type}
+                    onClick={() => toggleType(type)}
+                    className={`px-2 py-0.5 rounded-full text-xs font-medium border transition-colors ${
+                      active
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "border-border text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Upcoming */}

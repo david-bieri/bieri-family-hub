@@ -431,7 +431,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
 
     // Registration deadlines
     for (const r of regRes.data || []) {
-      if (r.deadline && r.status !== "confirmed" && r.status !== "cancelled") {
+      if (r.deadline && r.status !== "confirmed" && r.status !== "paid" && r.status !== "cancelled") {
         items.push({
           id: r.id, title: r.program_name + " deadline",
           date: r.deadline, child_ids: [r.child_id],
@@ -531,9 +531,8 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       }
     }
     for (const r of regRes.data || []) {
-      if (r.deadline && r.status !== "confirmed" && r.status !== "cancelled") {
+      if (r.deadline && r.status !== "confirmed" && r.status !== "paid" && r.status !== "cancelled")
         items.push({ id: r.id, title: r.program_name + " deadline", date: r.deadline, child_ids: [r.child_id], category: "camp", _type: "registration" });
-      }
     }
     const filtered = (from || to) ? items.filter(item => {
       if (!item.date) return false;
@@ -691,6 +690,7 @@ async function commitExtractedItem(item: any) {
         id,
         title: item.title,
         date: item.date,
+        end_date: item.end_date || null,
         time: item.time,
         child_ids: item.child_ids || [],
         category: item.category || "other",
