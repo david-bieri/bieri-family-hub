@@ -798,6 +798,57 @@ export function registerInboxRoutes(app: Express) {
     res.json({ id: importId, extracted });
   });
 
+  // POST /api/inbox/trigger-scan — manual off-schedule email scan
+  // Runs the gmail_scan.py script as a child process and streams results back
+  app.post("/api/inbox/trigger-scan", async (_req, res) => {
+    const { exec } = await import("child_process");
+    const path = await import("path");
+    const scriptPath = path.resolve(__dirname, "../scripts/gmail_scan.py");
+
+    // Check if the script exists
+    const fs = await import("fs");
+    if (!fs.existsSync(scriptPath)) {
+      return res.status(501).json({
+        error: "Gmail scan script not found",
+        detail: "The gmail_scan.py script is not deployed on this server. Manual scans are only available when the script is present.",
+      });
+    }
+
+    try {
+      const child = exec(`python3 "${scriptPath}"`, {
+        timeout: 60_000, // 60s max
+        env: { ...process.env, FAMILY_HUB_API: `http://localhost:${process.env.PORT || 5000}` },
+      });
+
+      let stdout = "";
+      let stderr = "";
+      child.stdout?.on("data", (d: string) => { stdout += d; });
+      child.stderr?.on("data", (d: string) => { stderr += d; });
+
+      child.on("close", (code: number | null) => {
+        if (code === 0) {
+          // Parse the summary line from stdout
+          const match = stdout.match(/(\d+) new items?, (\d+) skipped/);
+          res.json({
+            ok: true,
+            new_items: match ? parseInt(match[1]) : 0,
+            skipped: match ? parseInt(match[2]) : 0,
+            log: stdout.trim().split("\n").slice(-5), // last 5 lines
+          });
+        } else {
+          res.status(500).json({
+            ok: false,
+            error: "Scan script exited with error",
+            code,
+            log: (stderr || stdout).trim().split("\n").slice(-5),
+          });
+        }
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // GET /api/inbox/pending — list unreviewed imports
   app.get("/api/inbox/pending", async (_req, res) => {
     const { data, error } = await supabase

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { CHILDREN } from "@/lib/children";
-import { ChildBadge } from "@/components/ChildBadge";
+import { CHILDREN, PARENTS } from "@/lib/children";
+import { ChildBadge, AttendeeList } from "@/components/ChildBadge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -233,10 +233,8 @@ export default function FamilyCalendar() {
                         )}
                       </div>
                       {item.time && <div className="text-xs text-muted-foreground mt-0.5">{item.time}{item.end_time && `–${item.end_time}`}</div>}
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {(item.child_ids || []).map((cid: string) => (
-                          <ChildBadge key={cid} childId={cid} />
-                        ))}
+                      <div className="mt-1">
+                        <AttendeeList ids={item.child_ids || []} />
                       </div>
                     </div>
                   </div>
@@ -259,11 +257,11 @@ export default function FamilyCalendar() {
             ))}
           </div>
 
-          {/* Filter by child */}
+          {/* Filter by family member */}
           <div className="bg-card border border-border rounded-xl p-4 space-y-2">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                Filter by Child
+                Filter by Person
               </h3>
               {filterChildren.length > 0 && (
                 <button className="text-[10px] text-primary hover:underline" onClick={() => setFilterChildren([])}>
@@ -272,26 +270,26 @@ export default function FamilyCalendar() {
               )}
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {CHILDREN.map(child => {
-                const active = filterChildren.includes(child.id);
+              {[...PARENTS, ...CHILDREN.map(c => ({ id: c.id, name: c.name }))].map(member => {
+                const active = filterChildren.includes(member.id);
                 return (
                   <button
-                    key={child.id}
-                    onClick={() => toggleChild(child.id)}
+                    key={member.id}
+                    onClick={() => toggleChild(member.id)}
                     className={`px-2 py-0.5 rounded-full text-xs font-medium border transition-colors ${
                       active
                         ? "bg-primary text-primary-foreground border-primary"
                         : "border-border text-muted-foreground hover:bg-muted"
                     }`}
                   >
-                    {child.name}
+                    {member.name}
                   </button>
                 );
               })}
             </div>
             {filterChildren.length > 0 && (
               <p className="text-[10px] text-muted-foreground pt-0.5">
-                Showing {filterChildren.length === 1 ? "1 child" : `${filterChildren.length} children`}
+                Showing {filterChildren.length === 1 ? "1 person" : `${filterChildren.length} people`}
               </p>
             )}
           </div>

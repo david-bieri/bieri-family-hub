@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { CHILDREN } from "@/lib/children";
-import { ChildBadge } from "@/components/ChildBadge";
+import { ChildBadge, AttendeeList } from "@/components/ChildBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -224,8 +224,8 @@ export default function Schedule() {
                         <div className="text-xs text-muted-foreground mt-0.5">
                           {format(parseISO(ev.date), "MMM d, yyyy")}{ev.time && ` · ${ev.time}`}{ev.end_time && `–${ev.end_time}`}
                         </div>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {(ev.child_ids || []).map((cid: string) => <ChildBadge key={cid} childId={cid} />)}
+                        <div className="mt-1">
+                          <AttendeeList ids={ev.child_ids || []} />
                         </div>
                       </div>
                       {!ev._recurrence_instance && (

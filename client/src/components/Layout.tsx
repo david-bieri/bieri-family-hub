@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import {
   LayoutDashboard, Calendar, Stethoscope, Trophy,
-  Tent, CreditCard, LogOut, Menu, X, Moon, Sun, Tag, CalendarDays, Inbox, PawPrint, MessageSquare
+  Tent, CreditCard, LogOut, Menu, X, Moon, Sun, Tag, CalendarDays, Inbox, PawPrint, MessageSquare, BookOpen
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -22,6 +22,7 @@ const NAV = [
   { href: "/pets",           label: "Pets",            icon: PawPrint },
   { href: "/inbox",          label: "Inbox",           icon: Inbox,        badgeKey: "inbox" },
   { href: "/messages",       label: "Messages",        icon: MessageSquare, badgeKey: "messages" },
+  { href: "/help",            label: "Help & Guide",    icon: BookOpen },
 ];
 
 function useDark() {
@@ -94,9 +95,11 @@ function useNavBadges(): Record<string, number> {
   const upcomingAppts = appointments.filter((a: any) =>
     !a.completed && a.date && a.date >= todayStr && a.date <= in14Str
   ).length;
+  // Count registrations that need attention: upcoming (within 14 days) OR overdue (deadline passed, still not done)
   const urgentRegs = registrations.filter((r: any) =>
-    r.deadline && r.deadline >= todayStr && r.deadline <= in14Str &&
-    r.status !== "confirmed" && r.status !== "paid" && r.status !== "cancelled"
+    r.deadline &&
+    r.status !== "confirmed" && r.status !== "paid" && r.status !== "cancelled" &&
+    (r.deadline <= in14Str) // includes both past-due and upcoming within 14 days
   ).length;
 
   return {

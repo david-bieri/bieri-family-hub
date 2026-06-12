@@ -2,11 +2,12 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { CHILDREN } from "@/lib/children";
+import { AttendeeList } from "@/components/ChildBadge";
 import { format, parseISO } from "date-fns";
 import {
   Mail, CheckCircle, XCircle, ChevronDown, ChevronUp,
   Inbox, RefreshCw, AlertCircle, Calendar, CreditCard,
-  Stethoscope, ClipboardList, Tag, Clock
+  Stethoscope, ClipboardList, Tag, Clock, HelpCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -141,20 +142,8 @@ function ExtractedItemCard({
           </div>
 
           {(item.child_ids || []).length > 0 && (
-            <div className="flex gap-1 flex-wrap mb-1.5">
-              {(item.child_ids || []).map((cid) => {
-                const child = CHILDREN.find((c) => c.id === cid);
-                if (!child) return null;
-                return (
-                  <span
-                    key={cid}
-                    className="text-[10px] px-1.5 py-0.5 rounded-full font-medium text-white"
-                    style={{ backgroundColor: CHILD_COLORS[cid] || "#6b7280" }}
-                  >
-                    {child.name}
-                  </span>
-                );
-              })}
+            <div className="mb-1.5">
+              <AttendeeList ids={item.child_ids || []} />
             </div>
           )}
 
@@ -277,10 +266,31 @@ function ImportCard({ record }: { record: PendingImport }) {
 }
 
 export default function InboxImports() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
   const { data: imports = [], isLoading, refetch, isFetching } = useQuery<PendingImport[]>({
     queryKey: ["/api/inbox/pending"],
     queryFn: async () => (await apiRequest("GET", "/api/inbox/pending")).json(),
     refetchInterval: 30_000,
+  });
+
+  const triggerScan = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/inbox/trigger-scan")).json(),
+    onSuccess: (data: any) => {
+      if (data.ok) {
+        toast({
+          title: "Email scan complete",
+          description: `${data.new_items} new item(s) found, ${data.skipped} already processed.`,
+        });
+        qc.invalidateQueries({ queryKey: ["/api/inbox/pending"] });
+        qc.invalidateQueries({ queryKey: ["/api/inbox/count"] });
+      } else {
+        toast({ title: "Scan issue", description: data.error || "Unknown error", variant: "destructive" });
+      }
+    },
+    onError: (err: any) => {
+      toast({ title: "Scan failed", description: err.message || "Could not reach the scan service", variant: "destructive" });
+    },
   });
 
   return (
@@ -295,17 +305,30 @@ export default function InboxImports() {
             Items extracted from your email — review and add to the family calendar
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          data-testid="button-refresh-inbox"
-          className="gap-1.5"
-        >
-          <RefreshCw size={13} className={isFetching ? "animate-spin" : ""} />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => triggerScan.mutate()}
+            disabled={triggerScan.isPending}
+            data-testid="button-scan-now"
+            className="gap-1.5"
+          >
+            <Mail size={13} className={triggerScan.isPending ? "animate-pulse" : ""} />
+            {triggerScan.isPending ? "Scanning..." : "Scan Now"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-refresh-inbox"
+            className="gap-1.5"
+          >
+            <RefreshCw size={13} className={isFetching ? "animate-spin" : ""} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {isLoading && (
@@ -339,6 +362,90 @@ export default function InboxImports() {
           {imports.map((record) => (
             <ImportCard key={record.id} record={record} />
           ))}
+        </div>
+      )}
+
+      {/* Email Scanning Syntax Reference */}
+      <EmailSyntaxHelp />
+    </div>
+  );
+}
+
+// ─── Email Scanning Syntax Help ─────────────────────────────────────────────
+function EmailSyntaxHelp() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border border-border rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-muted/50 transition-colors"
+      >
+        <HelpCircle size={15} className="text-primary shrink-0" />
+        <span className="text-sm font-medium flex-1">Email Scanning Quick Reference</span>
+        {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+      </button>
+      {open && (
+        <div className="px-4 pb-4 space-y-4 border-t border-border pt-3">
+          <p className="text-xs text-muted-foreground">
+            Forward or send emails to your connected Gmail with these subject-line shortcuts for instant categorization (no AI needed):
+          </p>
+
+          <div className="space-y-3">
+            <div>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Category Tags</h4>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                {[
+                  { tag: "#CAMP", desc: "Camp / program" },
+                  { tag: "#SPORT", desc: "Sports event" },
+                  { tag: "#SCHOOL", desc: "School event" },
+                  { tag: "#MED", desc: "Medical / vet" },
+                  { tag: "#PAY", desc: "Payment due" },
+                  { tag: "#REG", desc: "Registration" },
+                  { tag: "#PET", desc: "Pet-related" },
+                  { tag: "#FAM", desc: "Family event" },
+                  { tag: "#OFFICE", desc: "Work / professional" },
+                  { tag: "#TRAVEL", desc: "Travel / trips" },
+                  { tag: "#HOUSE", desc: "Home / maintenance" },
+                  { tag: "#INVITE", desc: "Social invitations" },
+                ].map(({ tag, desc }) => (
+                  <div key={tag} className="bg-muted/60 rounded-md px-2.5 py-1.5">
+                    <code className="text-xs font-bold text-primary">{tag}</code>
+                    <span className="text-[10px] text-muted-foreground ml-1.5">{desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Person Tags</h4>
+              <p className="text-xs text-muted-foreground mb-1.5">
+                Use <code className="bg-muted px-1 rounded">@Name</code> to assign items to family members:
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {["@David", "@Nancy", "@Cole", "@Greta", "@Airlie", "@Clara", "@Heidi", "@Daisy", "@Otis", "@Athena", "@Persephone"].map(name => (
+                  <span key={name} className="text-xs bg-muted/60 px-2 py-1 rounded-md font-mono">{name}</span>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Examples</h4>
+              <div className="space-y-1.5 font-mono text-xs bg-muted/40 rounded-lg p-3">
+                <div><span className="text-primary font-bold">#CAMP @Clara @Airlie</span> VA Techniques: Ninja Warrior Camp</div>
+                <div><span className="text-primary font-bold">#SPORT @Cole</span> Soccer practice Tuesday 6pm</div>
+                <div><span className="text-primary font-bold">#PAY @Airlie @Clara</span> Camp deposit due June 15 $250</div>
+                <div><span className="text-primary font-bold">#MED @Otis</span> Vet checkup reminder</div>
+                <div><span className="text-primary font-bold">#SCHOOL @Greta</span> Field trip permission slip due Friday</div>
+                <div><span className="text-primary font-bold">#OFFICE @David</span> Faculty meeting moved to 3pm Thursday</div>
+                <div><span className="text-primary font-bold">#TRAVEL @Nancy @David</span> Hotel confirmation Aug 12-15</div>
+                <div><span className="text-primary font-bold">#INVITE @Cole @Greta</span> Birthday party at the Johnsons Sat 2pm</div>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-muted-foreground italic">
+              Emails without tags are processed by AI and may take longer. Tagged emails are categorized instantly.
+            </p>
+          </div>
         </div>
       )}
     </div>
