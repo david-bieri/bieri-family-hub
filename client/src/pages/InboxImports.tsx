@@ -6,7 +6,7 @@ import { format, parseISO } from "date-fns";
 import {
   Mail, CheckCircle, XCircle, ChevronDown, ChevronUp,
   Inbox, RefreshCw, AlertCircle, Calendar, CreditCard,
-  Stethoscope, ClipboardList, Tag, Clock
+  Stethoscope, ClipboardList, Tag, Clock, HelpCircle
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -339,6 +339,83 @@ export default function InboxImports() {
           {imports.map((record) => (
             <ImportCard key={record.id} record={record} />
           ))}
+        </div>
+      )}
+
+      {/* Email Scanning Syntax Reference */}
+      <EmailSyntaxHelp />
+    </div>
+  );
+}
+
+// ─── Email Scanning Syntax Help ─────────────────────────────────────────────
+function EmailSyntaxHelp() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border border-border rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-muted/50 transition-colors"
+      >
+        <HelpCircle size={15} className="text-primary shrink-0" />
+        <span className="text-sm font-medium flex-1">Email Scanning Quick Reference</span>
+        {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+      </button>
+      {open && (
+        <div className="px-4 pb-4 space-y-4 border-t border-border pt-3">
+          <p className="text-xs text-muted-foreground">
+            Forward or send emails to your connected Gmail with these subject-line shortcuts for instant categorization (no AI needed):
+          </p>
+
+          <div className="space-y-3">
+            <div>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Category Tags</h4>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                {[
+                  { tag: "#CAMP", desc: "Camp / program" },
+                  { tag: "#SPORT", desc: "Sports event" },
+                  { tag: "#SCHOOL", desc: "School event" },
+                  { tag: "#MED", desc: "Medical / vet" },
+                  { tag: "#PAY", desc: "Payment due" },
+                  { tag: "#REG", desc: "Registration" },
+                  { tag: "#PET", desc: "Pet-related" },
+                  { tag: "#FAM", desc: "Family event" },
+                ].map(({ tag, desc }) => (
+                  <div key={tag} className="bg-muted/60 rounded-md px-2.5 py-1.5">
+                    <code className="text-xs font-bold text-primary">{tag}</code>
+                    <span className="text-[10px] text-muted-foreground ml-1.5">{desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Person Tags</h4>
+              <p className="text-xs text-muted-foreground mb-1.5">
+                Use <code className="bg-muted px-1 rounded">@Name</code> to assign items to family members:
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {["@Cole", "@Greta", "@Airlie", "@Clara", "@Heidi", "@Daisy", "@Otis", "@Athena", "@Persephone"].map(name => (
+                  <span key={name} className="text-xs bg-muted/60 px-2 py-1 rounded-md font-mono">{name}</span>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Examples</h4>
+              <div className="space-y-1.5 font-mono text-xs bg-muted/40 rounded-lg p-3">
+                <div><span className="text-primary font-bold">#CAMP @Clara @Airlie</span> VA Techniques: Ninja Warrior Camp</div>
+                <div><span className="text-primary font-bold">#SPORT @Cole</span> Soccer practice Tuesday 6pm</div>
+                <div><span className="text-primary font-bold">#PAY @Airlie @Clara</span> Camp deposit due June 15 $250</div>
+                <div><span className="text-primary font-bold">#MED @Otis</span> Vet checkup reminder</div>
+                <div><span className="text-primary font-bold">#SCHOOL @Greta</span> Field trip permission slip due Friday</div>
+              </div>
+            </div>
+
+            <p className="text-[11px] text-muted-foreground italic">
+              Emails without tags are processed by AI and may take longer. Tagged emails are categorized instantly.
+            </p>
+          </div>
         </div>
       )}
     </div>

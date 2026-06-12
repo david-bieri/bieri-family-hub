@@ -94,9 +94,11 @@ function useNavBadges(): Record<string, number> {
   const upcomingAppts = appointments.filter((a: any) =>
     !a.completed && a.date && a.date >= todayStr && a.date <= in14Str
   ).length;
+  // Count registrations that need attention: upcoming (within 14 days) OR overdue (deadline passed, still not done)
   const urgentRegs = registrations.filter((r: any) =>
-    r.deadline && r.deadline >= todayStr && r.deadline <= in14Str &&
-    r.status !== "confirmed" && r.status !== "paid" && r.status !== "cancelled"
+    r.deadline &&
+    r.status !== "confirmed" && r.status !== "paid" && r.status !== "cancelled" &&
+    (r.deadline <= in14Str) // includes both past-due and upcoming within 14 days
   ).length;
 
   return {
