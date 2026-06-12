@@ -33,9 +33,10 @@ export interface ExtractedItem {
 }
 
 // ─── Known family members ─────────────────────────────────────────────────────
+const PARENT_NAMES = ["david", "nancy"];
 const CHILD_NAMES  = ["cole", "greta", "airlie", "clara", "heidi", "daisy"];
 const PET_NAMES    = ["otis", "athena", "persephone"];
-const ALL_MEMBERS  = [...CHILD_NAMES, ...PET_NAMES];
+const ALL_MEMBERS  = [...PARENT_NAMES, ...CHILD_NAMES, ...PET_NAMES];
 
 const CATEGORY_IDS = ["school", "sports", "medical", "camp", "family", "payment", "pets", "other"];
 
@@ -49,6 +50,9 @@ const TAG_MAP: Record<string, { category: string; type: ExtractedItem["type"] }>
   REG:    { category: "other",   type: "registration" },
   PET:    { category: "pets",    type: "appointment"  },
   FAM:    { category: "family",  type: "event"        },
+  OFFICE: { category: "office",  type: "event"        },
+  TRAVEL: { category: "travel",  type: "event"        },
+  HOUSE:  { category: "home",    type: "task"         },
 };
 
 // ─── Flag syntax parser ───────────────────────────────────────────────────────
@@ -84,12 +88,16 @@ function parseFlagSyntax(subject: string): FlagParseResult {
   for (const at of atMatches) {
     const raw = at.slice(1).toLowerCase();
     // Exact match first, then prefix match
+    const parentMatch = PARENT_NAMES.find(
+      (n) => n === raw || n.startsWith(raw)
+    );
     const childMatch = CHILD_NAMES.find(
       (n) => n === raw || n.startsWith(raw)
     );
     const petMatch = PET_NAMES.find(
       (n) => n === raw || n.startsWith(raw)
     );
+    if (parentMatch && !mentions.includes(parentMatch)) mentions.push(parentMatch);
     if (childMatch && !mentions.includes(childMatch)) mentions.push(childMatch);
     if (petMatch  && !petMentions.includes(petMatch)) petMentions.push(petMatch);
   }

@@ -277,10 +277,31 @@ function ImportCard({ record }: { record: PendingImport }) {
 }
 
 export default function InboxImports() {
+  const qc = useQueryClient();
+  const { toast } = useToast();
   const { data: imports = [], isLoading, refetch, isFetching } = useQuery<PendingImport[]>({
     queryKey: ["/api/inbox/pending"],
     queryFn: async () => (await apiRequest("GET", "/api/inbox/pending")).json(),
     refetchInterval: 30_000,
+  });
+
+  const triggerScan = useMutation({
+    mutationFn: async () => (await apiRequest("POST", "/api/inbox/trigger-scan")).json(),
+    onSuccess: (data: any) => {
+      if (data.ok) {
+        toast({
+          title: "Email scan complete",
+          description: `${data.new_items} new item(s) found, ${data.skipped} already processed.`,
+        });
+        qc.invalidateQueries({ queryKey: ["/api/inbox/pending"] });
+        qc.invalidateQueries({ queryKey: ["/api/inbox/count"] });
+      } else {
+        toast({ title: "Scan issue", description: data.error || "Unknown error", variant: "destructive" });
+      }
+    },
+    onError: (err: any) => {
+      toast({ title: "Scan failed", description: err.message || "Could not reach the scan service", variant: "destructive" });
+    },
   });
 
   return (
@@ -295,17 +316,30 @@ export default function InboxImports() {
             Items extracted from your email — review and add to the family calendar
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          data-testid="button-refresh-inbox"
-          className="gap-1.5"
-        >
-          <RefreshCw size={13} className={isFetching ? "animate-spin" : ""} />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => triggerScan.mutate()}
+            disabled={triggerScan.isPending}
+            data-testid="button-scan-now"
+            className="gap-1.5"
+          >
+            <Mail size={13} className={triggerScan.isPending ? "animate-pulse" : ""} />
+            {triggerScan.isPending ? "Scanning..." : "Scan Now"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            data-testid="button-refresh-inbox"
+            className="gap-1.5"
+          >
+            <RefreshCw size={13} className={isFetching ? "animate-spin" : ""} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {isLoading && (
@@ -380,6 +414,9 @@ function EmailSyntaxHelp() {
                   { tag: "#REG", desc: "Registration" },
                   { tag: "#PET", desc: "Pet-related" },
                   { tag: "#FAM", desc: "Family event" },
+                  { tag: "#OFFICE", desc: "Work / professional" },
+                  { tag: "#TRAVEL", desc: "Travel / trips" },
+                  { tag: "#HOUSE", desc: "Home / maintenance" },
                 ].map(({ tag, desc }) => (
                   <div key={tag} className="bg-muted/60 rounded-md px-2.5 py-1.5">
                     <code className="text-xs font-bold text-primary">{tag}</code>
@@ -395,7 +432,7 @@ function EmailSyntaxHelp() {
                 Use <code className="bg-muted px-1 rounded">@Name</code> to assign items to family members:
               </p>
               <div className="flex flex-wrap gap-1.5">
-                {["@Cole", "@Greta", "@Airlie", "@Clara", "@Heidi", "@Daisy", "@Otis", "@Athena", "@Persephone"].map(name => (
+                {["@David", "@Nancy", "@Cole", "@Greta", "@Airlie", "@Clara", "@Heidi", "@Daisy", "@Otis", "@Athena", "@Persephone"].map(name => (
                   <span key={name} className="text-xs bg-muted/60 px-2 py-1 rounded-md font-mono">{name}</span>
                 ))}
               </div>
@@ -409,6 +446,8 @@ function EmailSyntaxHelp() {
                 <div><span className="text-primary font-bold">#PAY @Airlie @Clara</span> Camp deposit due June 15 $250</div>
                 <div><span className="text-primary font-bold">#MED @Otis</span> Vet checkup reminder</div>
                 <div><span className="text-primary font-bold">#SCHOOL @Greta</span> Field trip permission slip due Friday</div>
+                <div><span className="text-primary font-bold">#OFFICE @David</span> Faculty meeting moved to 3pm Thursday</div>
+                <div><span className="text-primary font-bold">#TRAVEL @Nancy @David</span> Hotel confirmation Aug 12-15</div>
               </div>
             </div>
 

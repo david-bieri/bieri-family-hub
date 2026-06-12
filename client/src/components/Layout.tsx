@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import {
   LayoutDashboard, Calendar, Stethoscope, Trophy,
-  Tent, CreditCard, LogOut, Menu, X, Moon, Sun, Tag, CalendarDays, Inbox, PawPrint, MessageSquare
+  Tent, CreditCard, LogOut, Menu, X, Moon, Sun, Tag, CalendarDays, Inbox, PawPrint, MessageSquare, BookOpen
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -22,6 +22,7 @@ const NAV = [
   { href: "/pets",           label: "Pets",            icon: PawPrint },
   { href: "/inbox",          label: "Inbox",           icon: Inbox,        badgeKey: "inbox" },
   { href: "/messages",       label: "Messages",        icon: MessageSquare, badgeKey: "messages" },
+  { href: "/help",            label: "Help & Guide",    icon: BookOpen },
 ];
 
 function useDark() {
