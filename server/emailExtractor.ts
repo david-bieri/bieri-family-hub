@@ -53,6 +53,7 @@ const TAG_MAP: Record<string, { category: string; type: ExtractedItem["type"] }>
   OFFICE: { category: "office",  type: "event"        },
   TRAVEL: { category: "travel",  type: "event"        },
   HOUSE:  { category: "home",    type: "task"         },
+  INVITE: { category: "social",  type: "event"        },
 };
 
 // ─── Flag syntax parser ───────────────────────────────────────────────────────

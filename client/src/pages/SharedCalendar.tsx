@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { CHILDREN } from "@/lib/children";
+import { AttendeeList } from "@/components/ChildBadge";
 import {
   format, parseISO, startOfMonth, endOfMonth,
   eachDayOfInterval, isSameDay, getDay, addMonths, subMonths
@@ -246,20 +247,8 @@ export default function SharedCalendar({ token }: SharedCalendarProps) {
                           </div>
                         )}
                         {(item.child_ids || []).length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {(item.child_ids || []).map((cid: string) => {
-                              const child = CHILDREN.find(c => c.id === cid);
-                              const cc = CHILD_COLORS[cid] || "#6b7280";
-                              return child ? (
-                                <span
-                                  key={cid}
-                                  className="text-[10px] px-1.5 py-0.5 rounded-full font-medium text-white"
-                                  style={{ backgroundColor: cc }}
-                                >
-                                  {child.name}
-                                </span>
-                              ) : null;
-                            })}
+                          <div className="mt-1">
+                            <AttendeeList ids={item.child_ids || []} />
                           </div>
                         )}
                       </div>

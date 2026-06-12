@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { CHILDREN } from "@/lib/children";
+import { AttendeeList } from "@/components/ChildBadge";
 import { format, parseISO } from "date-fns";
 import {
   Mail, CheckCircle, XCircle, ChevronDown, ChevronUp,
@@ -141,20 +142,8 @@ function ExtractedItemCard({
           </div>
 
           {(item.child_ids || []).length > 0 && (
-            <div className="flex gap-1 flex-wrap mb-1.5">
-              {(item.child_ids || []).map((cid) => {
-                const child = CHILDREN.find((c) => c.id === cid);
-                if (!child) return null;
-                return (
-                  <span
-                    key={cid}
-                    className="text-[10px] px-1.5 py-0.5 rounded-full font-medium text-white"
-                    style={{ backgroundColor: CHILD_COLORS[cid] || "#6b7280" }}
-                  >
-                    {child.name}
-                  </span>
-                );
-              })}
+            <div className="mb-1.5">
+              <AttendeeList ids={item.child_ids || []} />
             </div>
           )}
 
@@ -417,6 +406,7 @@ function EmailSyntaxHelp() {
                   { tag: "#OFFICE", desc: "Work / professional" },
                   { tag: "#TRAVEL", desc: "Travel / trips" },
                   { tag: "#HOUSE", desc: "Home / maintenance" },
+                  { tag: "#INVITE", desc: "Social invitations" },
                 ].map(({ tag, desc }) => (
                   <div key={tag} className="bg-muted/60 rounded-md px-2.5 py-1.5">
                     <code className="text-xs font-bold text-primary">{tag}</code>
@@ -448,6 +438,7 @@ function EmailSyntaxHelp() {
                 <div><span className="text-primary font-bold">#SCHOOL @Greta</span> Field trip permission slip due Friday</div>
                 <div><span className="text-primary font-bold">#OFFICE @David</span> Faculty meeting moved to 3pm Thursday</div>
                 <div><span className="text-primary font-bold">#TRAVEL @Nancy @David</span> Hotel confirmation Aug 12-15</div>
+                <div><span className="text-primary font-bold">#INVITE @Cole @Greta</span> Birthday party at the Johnsons Sat 2pm</div>
               </div>
             </div>
 

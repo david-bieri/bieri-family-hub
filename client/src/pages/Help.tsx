@@ -85,6 +85,7 @@ export default function Help() {
               { tag: "#OFFICE", desc: "Work / professional", type: "→ event" },
               { tag: "#TRAVEL", desc: "Travel / trips", type: "→ event" },
               { tag: "#HOUSE", desc: "Home / maintenance", type: "→ task" },
+              { tag: "#INVITE", desc: "Social invitations", type: "→ event" },
             ].map(({ tag, desc, type }) => (
               <div key={tag} className="bg-muted/60 rounded-lg px-3 py-2">
                 <code className="text-xs font-bold text-primary">{tag}</code>
@@ -140,6 +141,7 @@ export default function Help() {
             <div><span className="text-primary font-bold">#OFFICE @David</span> Faculty meeting moved to 3pm Thursday</div>
             <div><span className="text-primary font-bold">#TRAVEL @Nancy @David</span> Hotel confirmation Aug 12-15</div>
             <div><span className="text-primary font-bold">#HOUSE</span> HVAC filter replacement due this month</div>
+            <div><span className="text-primary font-bold">#INVITE @Cole @Greta @Airlie</span> Birthday party at the Johnsons Sat 2pm</div>
           </div>
         </div>
 

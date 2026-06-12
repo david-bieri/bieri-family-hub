@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { CHILDREN, getFullAge } from "@/lib/children";
-import { ChildBadge } from "@/components/ChildBadge";
+import { ChildBadge, AttendeeList } from "@/components/ChildBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -169,10 +169,8 @@ export default function Dashboard() {
                 <div className="text-xs text-muted-foreground w-12 shrink-0 mt-0.5">{formatDate(ev.date)}</div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{ev.title}</div>
-                  <div className="flex flex-wrap gap-1 mt-0.5">
-                    {(ev.child_ids || []).map((cid: string) => (
-                      <ChildBadge key={cid} childId={cid} />
-                    ))}
+                  <div className="mt-0.5">
+                    <AttendeeList ids={ev.child_ids || []} />
                     {ev._type && ev._type !== "event" && (
                       <span className="text-[9px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full capitalize">{ev._type}</span>
                     )}
