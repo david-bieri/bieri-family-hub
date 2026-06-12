@@ -19,6 +19,7 @@ import InboxImports from "./pages/InboxImports";
 import Pets from "./pages/Pets";
 import Messages from "./pages/Messages";
 import Help from "./pages/Help";
+import HomeProperty from "./pages/HomeProperty";
 import NotFound from "./pages/not-found";
 
 // Check for share token in query params (public read-only calendar link)
@@ -44,6 +45,7 @@ function AppRoutes() {
           <Route path="/inbox" component={InboxImports} />
           <Route path="/pets" component={Pets} />
           <Route path="/messages" component={Messages} />
+          <Route path="/home-property" component={HomeProperty} />
           <Route path="/help" component={Help} />
           <Route component={NotFound} />
         </Switch>

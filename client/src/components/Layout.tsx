@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import {
   LayoutDashboard, Calendar, Stethoscope, Trophy,
-  Tent, CreditCard, LogOut, Menu, X, Moon, Sun, Tag, CalendarDays, Inbox, PawPrint, MessageSquare, BookOpen
+  Tent, CreditCard, LogOut, Menu, X, Moon, Sun, Tag, CalendarDays, Inbox, PawPrint, MessageSquare, BookOpen, Home
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -19,6 +19,7 @@ const NAV = [
   { href: "/camps",          label: "Camps & Reg.",   icon: Tent,         badgeKey: "camps" },
   { href: "/payments",       label: "Payments",       icon: CreditCard,   badgeKey: "payments" },
   { href: "/categories",     label: "Categories",     icon: Tag },
+  { href: "/home-property",  label: "Home & Property", icon: Home,         badgeKey: "home" },
   { href: "/pets",           label: "Pets",            icon: PawPrint },
   { href: "/inbox",          label: "Inbox",           icon: Inbox,        badgeKey: "inbox" },
   { href: "/messages",       label: "Messages",        icon: MessageSquare, badgeKey: "messages" },
@@ -82,6 +83,11 @@ function useNavBadges(): Record<string, number> {
     },
     refetchInterval: 30_000,
   });
+  const { data: homeCountData } = useQuery({
+    queryKey: ["/api/maintenance-tasks/count"],
+    queryFn: async () => (await apiRequest("GET", "/api/maintenance-tasks/count")).json(),
+    refetchInterval: 5 * 60_000,
+  });
 
   const today = new Date();
   const in14 = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000);
@@ -108,6 +114,7 @@ function useNavBadges(): Record<string, number> {
     medical:  upcomingAppts,
     camps:    urgentRegs,
     messages: (msgCountData as any)?.count || 0,
+    home:     (homeCountData as any)?.count || 0,
   };
 }
 

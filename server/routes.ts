@@ -399,7 +399,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
   app.get("/api/calendar", async (req, res) => {
     const { from, to } = req.query as { from?: string; to?: string };
 
-    const [evRes, apptRes, payRes, regRes, sportsRes, vetRes, groomRes] = await Promise.all([
+    const [evRes, apptRes, payRes, regRes, sportsRes, vetRes, groomRes, maintRes] = await Promise.all([
       supabase.from("events").select("*").order("date"),
       supabase.from("medical_appointments").select("*").gte("date", from || "2000-01-01").lte("date", to || "2099-12-31"),
       supabase.from("payments").select("*").not("due_date", "is", null),
@@ -407,6 +407,7 @@ export async function registerRoutes(httpServer: Server, app: Express) {
       supabase.from("sports").select("*").eq("active", true),
       supabase.from("pet_vet_appointments").select("*, pets(name, color)").not("date", "is", null),
       supabase.from("pet_grooming").select("*, pets(name, color)").not("date", "is", null),
+      supabase.from("maintenance_tasks").select("*, properties(name)").not("due_date", "is", null).neq("status", "done"),
     ]);
 
     const items: any[] = [];
@@ -479,6 +480,17 @@ export async function registerRoutes(httpServer: Server, app: Express) {
         child_ids: [], pet_ids: [g.pet_id],
         category: "pets", _type: "grooming", _data: g,
         color: g.pets?.color,
+      });
+    }
+
+    // Maintenance tasks with due dates
+    for (const m of maintRes.data || []) {
+      items.push({
+        id: m.id,
+        title: `🛠️ ${m.title}${m.properties?.name ? " (" + m.properties.name + ")" : ""}`,
+        date: m.due_date,
+        child_ids: m.assigned_to ? [m.assigned_to] : [],
+        category: "home", _type: "maintenance", _data: m,
       });
     }
 
@@ -658,6 +670,189 @@ export function registerMessageRoutes(app: Express) {
     res.json(data);
   });
 
+  // ─── HOME & PROPERTY ────────────────────────────────────────────────────
+
+  // Properties CRUD
+  app.get("/api/properties", async (_req, res) => {
+    const { data, error } = await supabase.from("properties").select("*").order("created_at");
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.post("/api/properties", async (req, res) => {
+    const id = nanoid();
+    const { name, address, type, notes } = req.body;
+    const { data, error } = await supabase.from("properties").insert([{ id, name, address, type: type || "other", notes }]).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.put("/api/properties/:id", async (req, res) => {
+    const { name, address, type, notes } = req.body;
+    const { data, error } = await supabase.from("properties").update({ name, address, type, notes }).eq("id", req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.delete("/api/properties/:id", async (req, res) => {
+    const { error } = await supabase.from("properties").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  });
+
+  // Property Assets CRUD
+  app.get("/api/property-assets", async (req, res) => {
+    const propertyId = req.query.property_id as string | undefined;
+    let query = supabase.from("property_assets").select("*").order("name");
+    if (propertyId) query = query.eq("property_id", propertyId);
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.post("/api/property-assets", async (req, res) => {
+    const id = nanoid();
+    const { property_id, name, category, make_model, install_date, warranty_end, notes } = req.body;
+    const { data, error } = await supabase.from("property_assets").insert([{ id, property_id, name, category: category || "general", make_model, install_date, warranty_end, notes }]).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.put("/api/property-assets/:id", async (req, res) => {
+    const { property_id, name, category, make_model, install_date, warranty_end, notes } = req.body;
+    const { data, error } = await supabase.from("property_assets").update({ property_id, name, category, make_model, install_date, warranty_end, notes }).eq("id", req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.delete("/api/property-assets/:id", async (req, res) => {
+    const { error } = await supabase.from("property_assets").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  });
+
+  // Maintenance Tasks CRUD
+  app.get("/api/maintenance-tasks", async (req, res) => {
+    const propertyId = req.query.property_id as string | undefined;
+    const status = req.query.status as string | undefined;
+    let query = supabase.from("maintenance_tasks").select("*").order("due_date", { ascending: true });
+    if (propertyId) query = query.eq("property_id", propertyId);
+    if (status) query = query.eq("status", status);
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.get("/api/maintenance-tasks/count", async (_req, res) => {
+    const today = new Date().toISOString().split("T")[0];
+    const { count, error } = await supabase
+      .from("maintenance_tasks")
+      .select("*", { count: "exact", head: true })
+      .in("status", ["pending", "overdue", "scheduled"])
+      .lte("due_date", today);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ count: count || 0 });
+  });
+
+  app.post("/api/maintenance-tasks", async (req, res) => {
+    const id = nanoid();
+    const { property_id, asset_id, title, description, status, priority, due_date, completed_date, assigned_to, recurring, recurrence_type, recurrence_interval, season, cost, notes } = req.body;
+    const { data, error } = await supabase.from("maintenance_tasks").insert([{
+      id, property_id, asset_id: asset_id || null, title, description,
+      status: status || "pending", priority: priority || "normal",
+      due_date, completed_date, assigned_to: assigned_to || null,
+      recurring: recurring || false, recurrence_type: recurrence_type || null,
+      recurrence_interval: recurrence_interval || 1, season: season || null,
+      cost, notes
+    }]).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.put("/api/maintenance-tasks/:id", async (req, res) => {
+    const { property_id, asset_id, title, description, status, priority, due_date, completed_date, assigned_to, recurring, recurrence_type, recurrence_interval, season, cost, notes } = req.body;
+    const { data, error } = await supabase.from("maintenance_tasks").update({
+      property_id, asset_id: asset_id || null, title, description,
+      status, priority, due_date, completed_date, assigned_to: assigned_to || null,
+      recurring: recurring || false, recurrence_type: recurrence_type || null,
+      recurrence_interval: recurrence_interval || 1, season: season || null,
+      cost, notes
+    }).eq("id", req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.delete("/api/maintenance-tasks/:id", async (req, res) => {
+    const { error } = await supabase.from("maintenance_tasks").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  });
+
+  // Service Providers CRUD
+  app.get("/api/service-providers", async (_req, res) => {
+    const { data, error } = await supabase.from("service_providers").select("*").order("name");
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.post("/api/service-providers", async (req, res) => {
+    const id = nanoid();
+    const { name, company, specialty, phone, email, address, rating, notes } = req.body;
+    const { data, error } = await supabase.from("service_providers").insert([{ id, name, company, specialty: specialty || "general", phone, email, address, rating, notes }]).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.put("/api/service-providers/:id", async (req, res) => {
+    const { name, company, specialty, phone, email, address, rating, notes } = req.body;
+    const { data, error } = await supabase.from("service_providers").update({ name, company, specialty, phone, email, address, rating, notes }).eq("id", req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.delete("/api/service-providers/:id", async (req, res) => {
+    const { error } = await supabase.from("service_providers").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  });
+
+  // Maintenance Log CRUD
+  app.get("/api/maintenance-log", async (req, res) => {
+    const propertyId = req.query.property_id as string | undefined;
+    let query = supabase.from("maintenance_log").select("*").order("date", { ascending: false });
+    if (propertyId) query = query.eq("property_id", propertyId);
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.post("/api/maintenance-log", async (req, res) => {
+    const id = nanoid();
+    const { property_id, asset_id, task_id, provider_id, title, date, cost, description, notes } = req.body;
+    const { data, error } = await supabase.from("maintenance_log").insert([{
+      id, property_id, asset_id: asset_id || null, task_id: task_id || null,
+      provider_id: provider_id || null, title, date, cost, description, notes
+    }]).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.put("/api/maintenance-log/:id", async (req, res) => {
+    const { property_id, asset_id, task_id, provider_id, title, date, cost, description, notes } = req.body;
+    const { data, error } = await supabase.from("maintenance_log").update({
+      property_id, asset_id: asset_id || null, task_id: task_id || null,
+      provider_id: provider_id || null, title, date, cost, description, notes
+    }).eq("id", req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  app.delete("/api/maintenance-log/:id", async (req, res) => {
+    const { error } = await supabase.from("maintenance_log").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  });
+
   // POST /api/sms/inbound — Twilio webhook for inbound SMS
   // Twilio posts application/x-www-form-urlencoded with From, Body, etc.
   app.post("/api/sms/inbound", async (req, res) => {
@@ -741,8 +936,21 @@ async function commitExtractedItem(item: any) {
         status: "pending",
         notes: item.notes,
       });
+    case "task":
+      // Home maintenance tasks → save to maintenance_tasks table
+      return supabase.from("maintenance_tasks").insert({
+        id,
+        property_id: item.property_id || "prop-cedarview",  // default to primary property
+        title: item.title,
+        description: item.notes,
+        status: "pending",
+        priority: "normal",
+        due_date: item.date,
+        assigned_to: item.child_ids?.[0] || null,  // parents are in child_ids for #HOUSE
+        notes: item.source_hint || null,
+      });
     default:
-      // tasks → save as events with category "other"
+      // Unknown types → save as events with category "other"
       return supabase.from("events").insert({
         id,
         title: item.title,

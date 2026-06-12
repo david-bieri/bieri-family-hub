@@ -211,3 +211,98 @@ VALUES
   ('pet-athena',     'Athena',     'cat', 'Russian Blue',         '#64748b', null),
   ('pet-persephone', 'Persephone', 'cat', 'Black Bombay',         '#1e1b4b', null)
 ON CONFLICT (id) DO NOTHING;
+
+-- ─── Home & Property (v1.6) ──────────────────────────────────────────────────
+
+-- Properties — each physical property the family manages
+CREATE TABLE IF NOT EXISTS properties (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,           -- e.g. "709 Cedarview Dr." or "1016 Highland Cir."
+  address     TEXT,                    -- full street address
+  type        TEXT DEFAULT 'primary',  -- 'primary' | 'rental' | 'vacation' | 'other'
+  notes       TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Assets / Systems — things within a property that need maintenance
+CREATE TABLE IF NOT EXISTS property_assets (
+  id            TEXT PRIMARY KEY,
+  property_id   TEXT NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,           -- e.g. "HVAC System", "Roof", "Lawn Mower"
+  category      TEXT DEFAULT 'general',  -- 'hvac' | 'plumbing' | 'electrical' | 'appliance' | 'exterior' | 'garden' | 'vehicle' | 'general'
+  make_model    TEXT,                    -- manufacturer / model info
+  install_date  TEXT,                    -- ISO yyyy-MM-dd
+  warranty_end  TEXT,                    -- ISO yyyy-MM-dd
+  notes         TEXT,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Maintenance Tasks — one-off or recurring tasks tied to an asset or property
+CREATE TABLE IF NOT EXISTS maintenance_tasks (
+  id              TEXT PRIMARY KEY,
+  property_id     TEXT NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  asset_id        TEXT REFERENCES property_assets(id) ON DELETE SET NULL,
+  title           TEXT NOT NULL,
+  description     TEXT,
+  status          TEXT DEFAULT 'pending',   -- 'pending' | 'scheduled' | 'in_progress' | 'done' | 'overdue'
+  priority        TEXT DEFAULT 'normal',    -- 'low' | 'normal' | 'high' | 'urgent'
+  due_date        TEXT,                     -- ISO yyyy-MM-dd
+  completed_date  TEXT,
+  assigned_to     TEXT,                     -- person id (david, nancy, etc.)
+  -- Recurrence
+  recurring       BOOLEAN DEFAULT FALSE,
+  recurrence_type TEXT,                     -- 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly'
+  recurrence_interval INTEGER DEFAULT 1,
+  season          TEXT,                     -- 'spring' | 'summer' | 'fall' | 'winter' | null (year-round)
+  cost            TEXT,                     -- estimated cost
+  notes           TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Service Providers — contractors, technicians, etc.
+CREATE TABLE IF NOT EXISTS service_providers (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  company     TEXT,
+  specialty   TEXT,            -- 'plumbing' | 'electrical' | 'hvac' | 'landscaping' | 'general' | 'roofing' | 'pest_control' | 'other'
+  phone       TEXT,
+  email       TEXT,
+  address     TEXT,
+  rating      INTEGER,         -- 1-5 stars
+  notes       TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Maintenance Log — history of completed work
+CREATE TABLE IF NOT EXISTS maintenance_log (
+  id            TEXT PRIMARY KEY,
+  property_id   TEXT NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  asset_id      TEXT REFERENCES property_assets(id) ON DELETE SET NULL,
+  task_id       TEXT REFERENCES maintenance_tasks(id) ON DELETE SET NULL,
+  provider_id   TEXT REFERENCES service_providers(id) ON DELETE SET NULL,
+  title         TEXT NOT NULL,
+  date          TEXT NOT NULL,           -- ISO yyyy-MM-dd
+  cost          TEXT,                    -- actual cost paid
+  description   TEXT,
+  notes         TEXT,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Seed the two family properties
+INSERT INTO properties (id, name, address, type, notes)
+VALUES
+  ('prop-cedarview', '709 Cedarview Dr.', '709 Cedarview Dr.', 'primary', 'Main family home'),
+  ('prop-highland',  '1016 Highland Cir.', '1016 Highland Cir.', 'other', 'Secondary property')
+ON CONFLICT (id) DO NOTHING;
+
+-- Add "home" as a built-in category
+INSERT INTO categories (id, name, color) VALUES
+  ('home', 'Home & Property', '#92400e')
+ON CONFLICT (id) DO NOTHING;
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS maintenance_tasks_property_idx ON maintenance_tasks(property_id);
+CREATE INDEX IF NOT EXISTS maintenance_tasks_status_idx ON maintenance_tasks(status);
+CREATE INDEX IF NOT EXISTS maintenance_tasks_due_idx ON maintenance_tasks(due_date);
+CREATE INDEX IF NOT EXISTS maintenance_log_property_idx ON maintenance_log(property_id);
+CREATE INDEX IF NOT EXISTS property_assets_property_idx ON property_assets(property_id);
