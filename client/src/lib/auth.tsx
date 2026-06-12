@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { apiRequest } from "./queryClient";
 
+const LS_AUTH_KEY = "familyHub_authToken";
+
 interface AuthCtx {
   authed: boolean;
   login: (pw: string) => Promise<boolean>;
@@ -14,11 +16,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
-    // Check URL param for token (works in sandboxed iframe where sessionStorage is blocked)
+    // 1. Check URL param for token (legacy links / iframe compat)
     const params = new URLSearchParams(window.location.search);
     const t = params.get("t");
     if (t) {
+      // Migrate token from URL to localStorage and clean up the URL
+      localStorage.setItem(LS_AUTH_KEY, t);
       setAuthed(true);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("t");
+      window.history.replaceState({}, "", url.toString());
+    } else {
+      // 2. Check localStorage for persisted token
+      const stored = localStorage.getItem(LS_AUTH_KEY);
+      if (stored) {
+        setAuthed(true);
+      }
     }
     setChecked(true);
   }, []);
@@ -29,9 +42,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const knownToken = "YmllcmkyMDI2"; // btoa('bieri2026')
     if (token === knownToken) {
       setAuthed(true);
-      const url = new URL(window.location.href);
-      url.searchParams.set("t", token);
-      window.history.replaceState({}, "", url.toString());
+      localStorage.setItem(LS_AUTH_KEY, token);
       return true;
     }
     // Fallback: try server (works when Express is running)
@@ -45,9 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await res.json();
         if (data.ok) {
           setAuthed(true);
-          const url = new URL(window.location.href);
-          url.searchParams.set("t", data.token);
-          window.history.replaceState({}, "", url.toString());
+          localStorage.setItem(LS_AUTH_KEY, data.token);
           return true;
         }
       }
@@ -57,9 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   function logout() {
     setAuthed(false);
-    const url = new URL(window.location.href);
-    url.searchParams.delete("t");
-    window.history.replaceState({}, "", url.toString());
+    localStorage.removeItem(LS_AUTH_KEY);
   }
 
   if (!checked) return null;

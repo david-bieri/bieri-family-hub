@@ -25,11 +25,22 @@ const NAV = [
 ];
 
 function useDark() {
-  const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
+  const [dark, setDark] = useState(() => {
+    const stored = localStorage.getItem("familyHub_theme");
+    if (stored === "dark") {
+      document.documentElement.classList.add("dark");
+      return true;
+    } else if (stored === "light") {
+      document.documentElement.classList.remove("dark");
+      return false;
+    }
+    return document.documentElement.classList.contains("dark");
+  });
   function toggle() {
     setDark(d => {
       const next = !d;
       document.documentElement.classList.toggle("dark", next);
+      localStorage.setItem("familyHub_theme", next ? "dark" : "light");
       return next;
     });
   }
@@ -72,16 +83,19 @@ function useNavBadges(): Record<string, number> {
   });
 
   const today = new Date();
-  const in30 = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const in14 = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000);
   const todayStr = today.toISOString().split("T")[0];
-  const in30Str = in30.toISOString().split("T")[0];
+  const in14Str = in14.toISOString().split("T")[0];
 
-  const overduePayments = payments.filter((p: any) => p.status === "overdue").length;
+  // Auto-detect overdue: any pending payment whose due_date has passed
+  const overduePayments = payments.filter((p: any) =>
+    p.status === "overdue" || (p.status === "pending" && p.due_date && p.due_date < todayStr)
+  ).length;
   const upcomingAppts = appointments.filter((a: any) =>
-    !a.completed && a.date && a.date >= todayStr
+    !a.completed && a.date && a.date >= todayStr && a.date <= in14Str
   ).length;
   const urgentRegs = registrations.filter((r: any) =>
-    r.deadline && r.deadline >= todayStr && r.deadline <= in30Str &&
+    r.deadline && r.deadline >= todayStr && r.deadline <= in14Str &&
     r.status !== "confirmed" && r.status !== "paid" && r.status !== "cancelled"
   ).length;
 

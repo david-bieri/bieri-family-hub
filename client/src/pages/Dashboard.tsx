@@ -24,9 +24,13 @@ function formatDate(d: string) {
 }
 
 export default function Dashboard() {
-  const { data: events = [], isLoading: evLoading } = useQuery({
-    queryKey: ["/api/events"],
-    queryFn: async () => (await apiRequest("GET", "/api/events")).json(),
+  const todayStr = new Date().toISOString().split("T")[0];
+  const in14Str = addDays(new Date(), 14).toISOString().split("T")[0];
+
+  // Unified calendar feed for the "Upcoming" card
+  const { data: calendarItems = [], isLoading: evLoading } = useQuery({
+    queryKey: ["/api/calendar", todayStr, in14Str],
+    queryFn: async () => (await apiRequest("GET", `/api/calendar?from=${todayStr}&to=${in14Str}`)).json(),
   });
   const { data: appointments = [] } = useQuery({
     queryKey: ["/api/appointments"],
@@ -52,19 +56,17 @@ export default function Dashboard() {
   const today = new Date();
   const in30 = addDays(today, 30);
 
-  // Upcoming events (next 14 days)
-  const upcoming = events
-    .filter((e: any) => {
-      const d = parseISO(e.date);
-      return !isBefore(d, today) && isBefore(d, addDays(today, 14));
-    })
-    .slice(0, 6);
+  // Upcoming items from the unified calendar (next 14 days — includes events, appointments, payments, deadlines)
+  const upcoming = calendarItems.slice(0, 8);
 
-  // Overdue / pending payments
+  // Overdue / pending payments — auto-detect overdue from due_date
   const pendingPayments = payments.filter((p: any) =>
-    p.status === "pending" || p.status === "overdue"
+    p.status === "pending" || p.status === "overdue" ||
+    (p.status === "pending" && p.due_date && p.due_date < todayStr)
   );
-  const overduePayments = payments.filter((p: any) => p.status === "overdue");
+  const overduePayments = payments.filter((p: any) =>
+    p.status === "overdue" || (p.status === "pending" && p.due_date && p.due_date < todayStr)
+  );
 
   // Upcoming appointments (next 30 days)
   const upcomingAppts = appointments.filter((a: any) =>
@@ -154,13 +156,13 @@ export default function Dashboard() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
-              <Calendar size={15} /> Upcoming (Next 14 Days)
+              <Calendar size={15} /> Upcoming (Next 14 Days — All Modules)
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {evLoading && <Skeleton className="h-20 w-full" />}
             {!evLoading && upcoming.length === 0 && (
-              <p className="text-sm text-muted-foreground">No events in the next 14 days.</p>
+              <p className="text-sm text-muted-foreground">Nothing scheduled in the next 14 days.</p>
             )}
             {upcoming.map((ev: any) => (
               <div key={ev.id} className="flex items-start gap-2 py-1.5 border-b border-border last:border-0" data-testid={`event-${ev.id}`}>
@@ -171,6 +173,9 @@ export default function Dashboard() {
                     {(ev.child_ids || []).map((cid: string) => (
                       <ChildBadge key={cid} childId={cid} />
                     ))}
+                    {ev._type && ev._type !== "event" && (
+                      <span className="text-[9px] bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full capitalize">{ev._type}</span>
+                    )}
                   </div>
                 </div>
                 <CategoryBadge cat={ev.category} />

@@ -90,7 +90,7 @@ function ExtractedItemCard({
       qc.invalidateQueries({ queryKey: ["/api/inbox/count"] });
       qc.invalidateQueries({ queryKey: ["/api/events"] });
       qc.invalidateQueries({ queryKey: ["/api/payments"] });
-      qc.invalidateQueries({ queryKey: ["/api/medical_appointments"] });
+      qc.invalidateQueries({ queryKey: ["/api/appointments"] });
       qc.invalidateQueries({ queryKey: ["/api/registrations"] });
       onDone();
     },
