@@ -1,14 +1,32 @@
 #!/usr/bin/env python3
 """
-gmail_scan.py — Enhanced Gmail inbox scanner for Bieri Family Hub
+gmail_scan.py — Manus Sandbox Gmail Scanner for Bieri Family Hub
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  THIS SCRIPT RUNS IN THE MANUS SANDBOX ONLY (daily cron at 7am EDT)        ║
+║                                                                            ║
+║  It uses the Manus `external-tool` CLI to access the Gmail connector.      ║
+║  It does NOT run on the Render server — for manual scans on Render,        ║
+║  the app uses direct IMAP (see server/gmailScanner.ts).                    ║
+║                                                                            ║
+║  Cron Configuration (Manus/Perplexity):                                    ║
+║    Schedule: 0 11 * * * (7:00 AM EDT / 11:00 UTC daily)                    ║
+║    Command:  python3 /path/to/scripts/gmail_scan.py                        ║
+║    Env vars: FAMILY_HUB_API=https://bieri-family-hub.onrender.com          ║
+║              GMAIL_LOOKBACK_DAYS=3 (optional, default 3)                   ║
+║                                                                            ║
+║  The `external-tool` binary is provided by the Manus sandbox environment   ║
+║  and connects to the user's Gmail via the configured Gmail connector.      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 
 CAPABILITIES:
-  1. Searches Gmail for family-relevant emails
+  1. Searches Gmail for family-relevant emails (via Manus Gmail connector)
   2. Downloads and processes attachments (PDF, ICS, text/HTML)
-  3. Sends enriched email data (body + attachment text) to the app's /api/inbox/scan endpoint
+  3. Sends enriched email data to the app's /api/inbox/scan endpoint
   4. Deduplicates by gmail_id to avoid re-processing
 
-Run by a daily cron or triggered manually via the app's "Scan Now" button.
+FLOW:
+  external-tool (Manus) → Gmail API → emails → POST to Render backend → LLM extraction
 """
 
 import json
@@ -19,7 +37,7 @@ import base64
 from datetime import datetime, timedelta, timezone
 
 # ─── Config ───────────────────────────────────────────────────────────────────
-APP_API = os.environ.get("FAMILY_HUB_API", "http://localhost:5000")
+APP_API = os.environ.get("FAMILY_HUB_API", "https://bieri-family-hub.onrender.com")
 LOOK_BACK_DAYS = int(os.environ.get("GMAIL_LOOKBACK_DAYS", "3"))
 _since = (datetime.now(timezone.utc) - timedelta(days=LOOK_BACK_DAYS)).strftime("%Y/%m/%d")
 
@@ -62,6 +80,10 @@ MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024
 
 
 def call_tool(source_id: str, tool_name: str, arguments: dict) -> dict:
+    """
+    Call a Manus connector tool via the external-tool CLI.
+    This binary is only available in the Manus sandbox environment.
+    """
     payload = json.dumps({"source_id": source_id, "tool_name": tool_name, "arguments": arguments})
     result = subprocess.run(
         ["external-tool", "call", payload],
@@ -73,8 +95,9 @@ def call_tool(source_id: str, tool_name: str, arguments: dict) -> dict:
 
 
 def search_emails() -> list[dict]:
-    """Search Gmail and return deduplicated list of relevant emails."""
+    """Search Gmail via the Manus connector and return deduplicated list of relevant emails."""
     print(f"[gmail_scan] Searching Gmail with {len(SEARCH_QUERIES)} queries...")
+    print(f"[gmail_scan] Looking back {LOOK_BACK_DAYS} days (since {_since})")
     result = call_tool("gcal", "search_email", {"queries": SEARCH_QUERIES})
 
     if isinstance(result, str):
@@ -99,10 +122,9 @@ def search_emails() -> list[dict]:
 
 
 def get_email_attachments(email_id: str) -> list[dict]:
-    """Fetch attachment metadata and content for an email."""
+    """Fetch attachment metadata and content for an email via the Manus connector."""
     attachments = []
     try:
-        # Try to get attachment list via the Gmail connector
         result = call_tool("gcal", "get_email_attachments", {"email_id": email_id})
         if isinstance(result, str):
             result = json.loads(result)
@@ -193,10 +215,17 @@ def post_to_app(email: dict, attachments: list[dict] = None) -> dict:
 
 def main():
     print(f"[gmail_scan] Starting — {datetime.now().isoformat()}")
+    print(f"[gmail_scan] Target API: {APP_API}")
     print(f"[gmail_scan] Enhanced mode: attachment parsing enabled")
 
     try:
         emails = search_emails()
+    except FileNotFoundError:
+        print("[gmail_scan] ERROR: 'external-tool' binary not found.", file=sys.stderr)
+        print("[gmail_scan] This script must run in the Manus sandbox environment.", file=sys.stderr)
+        print("[gmail_scan] For manual scans on Render, use the IMAP-based scanner instead.", file=sys.stderr)
+        print("[gmail_scan] Set GMAIL_USER and GMAIL_APP_PASSWORD in Render env vars.", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
         print(f"[gmail_scan] Gmail search failed: {e}", file=sys.stderr)
         sys.exit(1)

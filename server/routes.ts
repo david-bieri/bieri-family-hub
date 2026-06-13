@@ -1015,24 +1015,123 @@ export function registerInboxRoutes(app: Express) {
   });
 
   // POST /api/inbox/trigger-scan — manual off-schedule email scan
-  // Runs the gmail_scan.py script as a child process and streams results back
+  // Strategy: Use direct IMAP connection (primary), fall back to Python script if IMAP not configured
   app.post("/api/inbox/trigger-scan", async (_req, res) => {
+    const { isGmailConfigured, scanGmailInbox } = await import("./gmailScanner");
+
+    // ─── Primary: Direct IMAP scan ────────────────────────────────────────────
+    if (isGmailConfigured()) {
+      try {
+        console.log("[trigger-scan] Using direct IMAP connection...");
+        const { emails, errors } = await scanGmailInbox();
+
+        if (emails.length === 0) {
+          return res.json({
+            ok: true,
+            new_items: 0,
+            skipped: 0,
+            method: "imap",
+            log: ["No relevant emails found in the lookback period."],
+          });
+        }
+
+        // Process each email through the extraction pipeline
+        let newItems = 0;
+        let skipped = 0;
+        const extractErrors: string[] = [...errors];
+
+        for (const email of emails) {
+          try {
+            // Check for duplicates
+            if (email.gmail_id) {
+              const { data: existing } = await supabase
+                .from("pending_imports")
+                .select("id")
+                .eq("gmail_id", email.gmail_id)
+                .single();
+              if (existing) {
+                skipped++;
+                continue;
+              }
+            }
+
+            // Run extraction
+            const extracted = await extractFromEmail(
+              email.subject,
+              email.from,
+              email.snippet,
+              email.body,
+              email.html_body,
+              email.attachments
+            );
+
+            if (extracted.length === 0) continue;
+
+            // Save to pending_imports
+            const importId = nanoid();
+            const { error: insertErr } = await supabase.from("pending_imports").insert({
+              id: importId,
+              source: "email",
+              raw_subject: email.subject,
+              raw_from: email.from,
+              raw_date: email.date,
+              raw_snippet: email.snippet,
+              gmail_id: email.gmail_id || null,
+              extracted,
+              status: "pending",
+            });
+
+            if (insertErr) {
+              extractErrors.push(`Insert failed for '${email.subject}': ${insertErr.message}`);
+            } else {
+              newItems += extracted.length;
+            }
+          } catch (emailErr: any) {
+            extractErrors.push(`Failed '${email.subject}': ${emailErr.message}`);
+          }
+        }
+
+        return res.json({
+          ok: true,
+          new_items: newItems,
+          skipped,
+          method: "imap",
+          emails_scanned: emails.length,
+          log: [
+            `Scanned ${emails.length} relevant emails via IMAP`,
+            `${newItems} new items extracted, ${skipped} already processed`,
+            ...(extractErrors.length > 0 ? [`${extractErrors.length} error(s)`] : []),
+          ],
+        });
+      } catch (imapErr: any) {
+        console.error("[trigger-scan] IMAP scan failed:", imapErr.message);
+        // Fall through to Python script fallback
+        return res.status(500).json({
+          ok: false,
+          error: imapErr.message,
+          method: "imap",
+          hint: "Check GMAIL_USER and GMAIL_APP_PASSWORD environment variables on Render.",
+        });
+      }
+    }
+
+    // ─── Fallback: Python script (for Manus sandbox or local dev) ─────────────
     const { exec } = await import("child_process");
     const path = await import("path");
     const scriptPath = path.resolve(__dirname, "../scripts/gmail_scan.py");
 
-    // Check if the script exists
     const fs = await import("fs");
     if (!fs.existsSync(scriptPath)) {
       return res.status(501).json({
-        error: "Gmail scan script not found",
-        detail: "The gmail_scan.py script is not deployed on this server. Manual scans are only available when the script is present.",
+        ok: false,
+        error: "Gmail scanning not configured",
+        detail: "Neither IMAP credentials (GMAIL_USER + GMAIL_APP_PASSWORD) nor the gmail_scan.py script are available. See the Help page for setup instructions.",
       });
     }
 
     try {
       const child = exec(`python3 "${scriptPath}"`, {
-        timeout: 60_000, // 60s max
+        timeout: 60_000,
         env: { ...process.env, FAMILY_HUB_API: `http://localhost:${process.env.PORT || 5000}` },
       });
 
@@ -1043,25 +1142,26 @@ export function registerInboxRoutes(app: Express) {
 
       child.on("close", (code: number | null) => {
         if (code === 0) {
-          // Parse the summary line from stdout
           const match = stdout.match(/(\d+) new items?, (\d+) skipped/);
           res.json({
             ok: true,
             new_items: match ? parseInt(match[1]) : 0,
             skipped: match ? parseInt(match[2]) : 0,
-            log: stdout.trim().split("\n").slice(-5), // last 5 lines
+            method: "script",
+            log: stdout.trim().split("\n").slice(-5),
           });
         } else {
           res.status(500).json({
             ok: false,
             error: "Scan script exited with error",
             code,
+            method: "script",
             log: (stderr || stdout).trim().split("\n").slice(-5),
           });
         }
       });
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: e.message, method: "script" });
     }
   });
 
