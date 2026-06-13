@@ -968,9 +968,9 @@ export async function scanEmail(app: Express) {}
 
 // Register inbox routes on the app
 export function registerInboxRoutes(app: Express) {
-  // Manual scan endpoint — accepts a single email payload
+  // Manual scan endpoint — accepts a single email payload (enhanced with attachments)
   app.post("/api/inbox/scan", async (req, res) => {
-    const { subject, from, date, snippet, body, gmail_id } = req.body;
+    const { subject, from, date, snippet, body, html_body, attachments, gmail_id } = req.body;
     if (!subject && !snippet) return res.status(400).json({ error: "No email content" });
 
     // Avoid re-processing the same Gmail message
@@ -983,7 +983,15 @@ export function registerInboxRoutes(app: Express) {
       if (existing) return res.json({ skipped: true, reason: "already processed" });
     }
 
-    const extracted = await extractFromEmail(subject || "", from || "", snippet || "", body);
+    // Enhanced extraction with HTML body and attachments
+    const extracted = await extractFromEmail(
+      subject || "",
+      from || "",
+      snippet || "",
+      body,
+      html_body,
+      attachments
+    );
 
     if (extracted.length === 0) {
       return res.json({ extracted: [], saved: false });
@@ -1003,7 +1011,7 @@ export function registerInboxRoutes(app: Express) {
     });
 
     if (error) return res.status(500).json({ error: error.message });
-    res.json({ id: importId, extracted });
+    res.json({ id: importId, extracted, attachments_processed: attachments?.length || 0 });
   });
 
   // POST /api/inbox/trigger-scan — manual off-schedule email scan
@@ -1147,4 +1155,394 @@ export function registerInboxRoutes(app: Express) {
 
     res.json({ ok: true });
   });
+}
+
+// ─── CARPOOL & TRANSPORTATION ─────────────────────────────────────────────────
+export function registerCarpoolRoutes(app: Express) {
+
+  // ─── VEHICLES ─────────────────────────────────────────────────────────────
+  app.get("/api/vehicles", async (_req, res) => {
+    const { data, error } = await supabase.from("vehicles").select("*").order("name");
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+  });
+  app.post("/api/vehicles", async (req, res) => {
+    const { name, make_model, color, seats, notes } = req.body;
+    const { data, error } = await supabase.from("vehicles").insert([{ id: nanoid(), name, make_model, color, seats, notes }]).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.put("/api/vehicles/:id", async (req, res) => {
+    const { name, make_model, color, seats, notes, active } = req.body;
+    const { data, error } = await supabase.from("vehicles").update({ name, make_model, color, seats, notes, active }).eq("id", req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.delete("/api/vehicles/:id", async (req, res) => {
+    const { error } = await supabase.from("vehicles").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  });
+
+  // ─── DRIVERS ──────────────────────────────────────────────────────────────
+  app.get("/api/drivers", async (_req, res) => {
+    const { data, error } = await supabase.from("drivers").select("*, vehicles(name, color)").order("name");
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+  });
+  app.post("/api/drivers", async (req, res) => {
+    const { name, relationship, phone, email, vehicle_id, is_family, notes } = req.body;
+    const { data, error } = await supabase.from("drivers").insert([{ id: nanoid(), name, relationship, phone, email, vehicle_id, is_family, notes }]).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.put("/api/drivers/:id", async (req, res) => {
+    const { name, relationship, phone, email, vehicle_id, is_family, notes, active } = req.body;
+    const { data, error } = await supabase.from("drivers").update({ name, relationship, phone, email, vehicle_id, is_family, notes, active }).eq("id", req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.delete("/api/drivers/:id", async (req, res) => {
+    const { error } = await supabase.from("drivers").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  });
+
+  // ─── RIDE REQUESTS ────────────────────────────────────────────────────────
+  app.get("/api/rides", async (req, res) => {
+    const { date, from, to, child_id, status } = req.query as any;
+    let query = supabase.from("ride_requests").select("*, drivers(name), vehicles(name, color)").order("date").order("pickup_time");
+    if (date) query = query.eq("date", date);
+    if (from) query = query.gte("date", from);
+    if (to) query = query.lte("date", to);
+    if (child_id) query = query.eq("child_id", child_id);
+    if (status) query = query.eq("status", status);
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+  });
+  app.post("/api/rides", async (req, res) => {
+    const { child_id, date, pickup_time, pickup_location, dropoff_time, dropoff_location, activity, source_event_id, source_type, notes } = req.body;
+    const { data, error } = await supabase.from("ride_requests").insert([{
+      id: nanoid(), child_id, date, pickup_time, pickup_location, dropoff_time, dropoff_location,
+      activity, source_event_id, source_type, status: "unassigned", notes
+    }]).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.put("/api/rides/:id", async (req, res) => {
+    const { child_id, date, pickup_time, pickup_location, dropoff_time, dropoff_location, activity, status, assigned_driver, assigned_vehicle, notes } = req.body;
+    const { data, error } = await supabase.from("ride_requests").update({
+      child_id, date, pickup_time, pickup_location, dropoff_time, dropoff_location,
+      activity, status, assigned_driver, assigned_vehicle, notes
+    }).eq("id", req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.delete("/api/rides/:id", async (req, res) => {
+    const { error } = await supabase.from("ride_requests").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  });
+
+  // Assign driver to a ride
+  app.post("/api/rides/:id/assign", async (req, res) => {
+    const { driver_id, vehicle_id } = req.body;
+    const { data, error } = await supabase.from("ride_requests").update({
+      assigned_driver: driver_id,
+      assigned_vehicle: vehicle_id || null,
+      status: "assigned"
+    }).eq("id", req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  // Mark ride as completed and log it
+  app.post("/api/rides/:id/complete", async (req, res) => {
+    const { miles, notes } = req.body;
+    const { data: ride, error: fetchErr } = await supabase.from("ride_requests").select("*").eq("id", req.params.id).single();
+    if (fetchErr || !ride) return res.status(404).json({ error: "Ride not found" });
+
+    // Update ride status
+    await supabase.from("ride_requests").update({ status: "completed" }).eq("id", req.params.id);
+
+    // Create transport log entry
+    const { data, error } = await supabase.from("transport_log").insert([{
+      id: nanoid(),
+      date: ride.date,
+      driver_id: ride.assigned_driver,
+      vehicle_id: ride.assigned_vehicle,
+      child_ids: [ride.child_id],
+      pickup_location: ride.pickup_location,
+      dropoff_location: ride.dropoff_location,
+      activity: ride.activity,
+      miles: miles || null,
+      notes: notes || ride.notes,
+    }]).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  // ─── CARPOOL GROUPS ───────────────────────────────────────────────────────
+  app.get("/api/carpool-groups", async (_req, res) => {
+    const { data, error } = await supabase.from("carpool_groups").select("*").order("name");
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+  });
+  app.post("/api/carpool-groups", async (req, res) => {
+    const { name, activity, day_of_week, pickup_time, dropoff_time, pickup_location, dropoff_location, child_ids, rotation, notes } = req.body;
+    const { data, error } = await supabase.from("carpool_groups").insert([{
+      id: nanoid(), name, activity, day_of_week, pickup_time, dropoff_time,
+      pickup_location, dropoff_location, child_ids: child_ids || [], rotation: rotation || [], notes
+    }]).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.put("/api/carpool-groups/:id", async (req, res) => {
+    const { name, activity, day_of_week, pickup_time, dropoff_time, pickup_location, dropoff_location, child_ids, rotation, notes, active } = req.body;
+    const { data, error } = await supabase.from("carpool_groups").update({
+      name, activity, day_of_week, pickup_time, dropoff_time,
+      pickup_location, dropoff_location, child_ids, rotation, notes, active
+    }).eq("id", req.params.id).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+  app.delete("/api/carpool-groups/:id", async (req, res) => {
+    const { error } = await supabase.from("carpool_groups").delete().eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  });
+
+  // ─── TRANSPORT LOG ────────────────────────────────────────────────────────
+  app.get("/api/transport-log", async (req, res) => {
+    const { from, to } = req.query as any;
+    let query = supabase.from("transport_log").select("*, drivers(name), vehicles(name)").order("date", { ascending: false });
+    if (from) query = query.gte("date", from);
+    if (to) query = query.lte("date", to);
+    const { data, error } = await query.limit(100);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+  });
+  app.post("/api/transport-log", async (req, res) => {
+    const { date, driver_id, vehicle_id, child_ids, pickup_location, dropoff_location, activity, miles, notes } = req.body;
+    const { data, error } = await supabase.from("transport_log").insert([{
+      id: nanoid(), date, driver_id, vehicle_id, child_ids: child_ids || [],
+      pickup_location, dropoff_location, activity, miles, notes
+    }]).select().single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  });
+
+  // ─── DAILY SCHEDULE VIEW ──────────────────────────────────────────────────
+  // Returns a merged view of all transport needs for a given date
+  // Pulls from: ride_requests + sports schedules + events with locations
+  app.get("/api/transport/daily/:date", async (req, res) => {
+    const { date } = req.params;
+    const dayOfWeek = new Date(date + "T12:00:00").getDay(); // 0=Sun, 1=Mon...
+    const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const dayName = dayNames[dayOfWeek];
+
+    // 1. Explicit ride requests for this date
+    const { data: rides } = await supabase.from("ride_requests")
+      .select("*, drivers(name), vehicles(name, color)")
+      .eq("date", date)
+      .order("pickup_time");
+
+    // 2. Active sports that practice on this day of week
+    const { data: sports } = await supabase.from("sports")
+      .select("*")
+      .eq("active", true);
+
+    const sportRides = (sports || [])
+      .filter((s: any) => {
+        const days: string[] = Array.isArray(s.days) ? s.days : [];
+        return days.some((d: string) => d.toLowerCase() === dayName);
+      })
+      .map((s: any) => ({
+        id: `sport-${s.id}-${date}`,
+        child_id: s.child_id,
+        date,
+        pickup_time: null,
+        pickup_location: "Home",
+        dropoff_time: s.time,
+        dropoff_location: s.location || s.sport,
+        activity: `${s.sport}${s.team ? " (" + s.team + ")" : ""}`,
+        source_type: "sports",
+        source_event_id: s.id,
+        status: "auto",
+        assigned_driver: null,
+        assigned_vehicle: null,
+        notes: null,
+      }));
+
+    // 3. Events on this date that have a location (likely need transport)
+    const { data: events } = await supabase.from("events")
+      .select("*")
+      .eq("date", date)
+      .not("is_template", "eq", true);
+
+    const eventRides = (events || [])
+      .filter((e: any) => e.child_ids && e.child_ids.length > 0)
+      .flatMap((e: any) => {
+        const childIds: string[] = Array.isArray(e.child_ids) ? e.child_ids : [];
+        return childIds.map((cid: string) => ({
+          id: `event-${e.id}-${cid}`,
+          child_id: cid,
+          date,
+          pickup_time: null,
+          pickup_location: "Home",
+          dropoff_time: e.time || null,
+          dropoff_location: e.notes || e.title,
+          activity: e.title,
+          source_type: "event",
+          source_event_id: e.id,
+          status: "auto",
+          assigned_driver: null,
+          assigned_vehicle: null,
+          notes: null,
+        }));
+      });
+
+    // 4. Carpool groups active on this day
+    const { data: carpools } = await supabase.from("carpool_groups")
+      .select("*")
+      .eq("active", true);
+
+    const carpoolRides = (carpools || [])
+      .filter((c: any) => c.day_of_week?.toLowerCase() === dayName)
+      .flatMap((c: any) => {
+        const childIds: string[] = Array.isArray(c.child_ids) ? c.child_ids : [];
+        return childIds.map((cid: string) => ({
+          id: `carpool-${c.id}-${cid}`,
+          child_id: cid,
+          date,
+          pickup_time: c.pickup_time,
+          pickup_location: c.pickup_location || "Home",
+          dropoff_time: c.dropoff_time,
+          dropoff_location: c.dropoff_location,
+          activity: `${c.name} (carpool)`,
+          source_type: "carpool",
+          source_event_id: c.id,
+          status: "carpool",
+          assigned_driver: null,
+          assigned_vehicle: null,
+          notes: c.notes,
+        }));
+      });
+
+    const allRides = [
+      ...(rides || []),
+      ...sportRides,
+      ...eventRides,
+      ...carpoolRides,
+    ].sort((a: any, b: any) => (a.dropoff_time || a.pickup_time || "99:99").localeCompare(b.dropoff_time || b.pickup_time || "99:99"));
+
+    res.json(allRides);
+  });
+
+  // ─── CONFLICT DETECTION ───────────────────────────────────────────────────
+  // Returns conflicts: two kids needing rides at overlapping times
+  app.get("/api/transport/conflicts/:date", async (req, res) => {
+    const { date } = req.params;
+
+    // Get all rides for this date (use the daily endpoint logic)
+    const { data: rides } = await supabase.from("ride_requests")
+      .select("*")
+      .eq("date", date)
+      .neq("status", "completed")
+      .order("pickup_time");
+
+    if (!rides || rides.length < 2) {
+      return res.json({ conflicts: [] });
+    }
+
+    // Find overlapping time windows for different children
+    const conflicts: any[] = [];
+    for (let i = 0; i < rides.length; i++) {
+      for (let j = i + 1; j < rides.length; j++) {
+        const a = rides[i];
+        const b = rides[j];
+        if (a.child_id === b.child_id) continue; // same kid, not a conflict
+
+        // Check if times overlap (within 15 min window)
+        const aTime = a.dropoff_time || a.pickup_time;
+        const bTime = b.dropoff_time || b.pickup_time;
+        if (aTime && bTime) {
+          const diff = Math.abs(timeToMinutes(aTime) - timeToMinutes(bTime));
+          if (diff <= 15) {
+            conflicts.push({
+              ride_a: a,
+              ride_b: b,
+              overlap_minutes: diff,
+              suggestion: "These rides are within 15 minutes of each other — consider combining or assigning different drivers.",
+            });
+          }
+        }
+      }
+    }
+
+    res.json({ conflicts });
+  });
+
+  // ─── RIDE COUNT BADGE ─────────────────────────────────────────────────────
+  app.get("/api/rides/count", async (_req, res) => {
+    const today = new Date().toISOString().split("T")[0];
+    const { count, error } = await supabase.from("ride_requests")
+      .select("*", { count: "exact", head: true })
+      .eq("date", today)
+      .eq("status", "unassigned");
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ count: count || 0 });
+  });
+
+  // ─── AUTO-GENERATE RIDES FROM SCHEDULE ────────────────────────────────────
+  // Creates ride_requests for a given date based on sports/events
+  app.post("/api/transport/generate/:date", async (req, res) => {
+    const { date } = req.params;
+    const dayOfWeek = new Date(date + "T12:00:00").getDay();
+    const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const dayName = dayNames[dayOfWeek];
+
+    // Get sports that practice on this day
+    const { data: sports } = await supabase.from("sports").select("*").eq("active", true);
+    const generated: any[] = [];
+
+    for (const s of sports || []) {
+      const days: string[] = Array.isArray(s.days) ? s.days : [];
+      if (!days.some((d: string) => d.toLowerCase() === dayName)) continue;
+
+      // Check if a ride already exists for this sport+child+date
+      const { data: existing } = await supabase.from("ride_requests")
+        .select("id")
+        .eq("child_id", s.child_id)
+        .eq("date", date)
+        .eq("source_event_id", s.id)
+        .single();
+      if (existing) continue;
+
+      const ride = {
+        id: nanoid(),
+        child_id: s.child_id,
+        date,
+        pickup_time: null,
+        pickup_location: "Home",
+        dropoff_time: s.time || null,
+        dropoff_location: s.location || null,
+        activity: `${s.sport}${s.team ? " (" + s.team + ")" : ""}`,
+        source_event_id: s.id,
+        source_type: "sports",
+        status: "unassigned",
+        notes: null,
+      };
+      const { error } = await supabase.from("ride_requests").insert([ride]);
+      if (!error) generated.push(ride);
+    }
+
+    res.json({ generated: generated.length, rides: generated });
+  });
+}
+
+function timeToMinutes(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
 }
