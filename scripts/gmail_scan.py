@@ -1,38 +1,29 @@
 #!/usr/bin/env python3
 """
-gmail_scan.py — Daily Gmail inbox scanner for Bieri Family Hub
+gmail_scan.py — Enhanced Gmail inbox scanner for Bieri Family Hub
 
-Searches Gmail for family-relevant emails (registrations, deadlines,
-appointments, payments, schedules), then calls the app's /api/inbox/scan
-endpoint to extract structured items via LLM and queue them for review.
+CAPABILITIES:
+  1. Searches Gmail for family-relevant emails
+  2. Downloads and processes attachments (PDF, ICS, text/HTML)
+  3. Sends enriched email data (body + attachment text) to the app's /api/inbox/scan endpoint
+  4. Deduplicates by gmail_id to avoid re-processing
 
-Run by a daily cron. Skips emails already processed (deduped by gmail_id).
+Run by a daily cron or triggered manually via the app's "Scan Now" button.
 """
 
 import json
 import subprocess
 import sys
 import os
+import base64
 from datetime import datetime, timedelta, timezone
 
 # ─── Config ───────────────────────────────────────────────────────────────────
-# The Family Hub backend URL.
-# - In Perplexity Computer cron sessions: always use http://localhost:5000
-#   (the server is started fresh each cron run — never use the proxy URL,
-#    which is session-scoped and expires after ~24h).
-# - When self-hosting: set FAMILY_HUB_API to your deployed backend URL.
 APP_API = os.environ.get("FAMILY_HUB_API", "http://localhost:5000")
-
-# Look-back window: pick up anything from the last N days.
-# The /api/inbox/scan endpoint deduplicates by gmail_id, so re-scanning
-# already-processed emails is harmless — they just return {skipped: true}.
 LOOK_BACK_DAYS = int(os.environ.get("GMAIL_LOOKBACK_DAYS", "3"))
-
-# Build the dynamic date-bounded query at runtime so it never goes stale.
 _since = (datetime.now(timezone.utc) - timedelta(days=LOOK_BACK_DAYS)).strftime("%Y/%m/%d")
 
-# Search queries — broad enough to catch relevant emails, specific enough
-# not to drown in noise.
+# Search queries — broad enough to catch relevant emails
 SEARCH_QUERIES = [
     "registration deadline",
     "camp registration",
@@ -47,8 +38,27 @@ SEARCH_QUERIES = [
     "doctor appointment",
     "summer program",
     "enrollment",
-    f"after:{_since} (registration OR deadline OR payment OR appointment OR schedule)",
+    "birthday party invitation",
+    "RSVP",
+    "maintenance reminder",
+    "home repair",
+    f"after:{_since} (registration OR deadline OR payment OR appointment OR schedule OR invitation)",
 ]
+
+# Attachment types we can process
+PROCESSABLE_MIME_TYPES = {
+    "application/pdf",
+    "text/calendar",
+    "text/plain",
+    "text/html",
+    "text/csv",
+    "application/ics",
+}
+
+PROCESSABLE_EXTENSIONS = {".pdf", ".ics", ".txt", ".html", ".htm", ".csv"}
+
+# Max attachment size to download (5MB)
+MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024
 
 
 def call_tool(source_id: str, tool_name: str, arguments: dict) -> dict:
@@ -67,11 +77,9 @@ def search_emails() -> list[dict]:
     print(f"[gmail_scan] Searching Gmail with {len(SEARCH_QUERIES)} queries...")
     result = call_tool("gcal", "search_email", {"queries": SEARCH_QUERIES})
 
-    # Result may be a JSON string or already parsed
     if isinstance(result, str):
         result = json.loads(result)
 
-    # Response shape: { email_results: { emails: [...] } }
     emails_by_id: dict[str, dict] = {}
     raw = (
         result.get("email_results", {}).get("emails", [])
@@ -82,7 +90,6 @@ def search_emails() -> list[dict]:
     for email in raw:
         if not isinstance(email, dict):
             continue
-        # Connector uses email_id and from_ (note the underscore)
         mid = email.get("email_id") or email.get("id") or email.get("message_id")
         if mid and mid not in emails_by_id:
             emails_by_id[mid] = email
@@ -91,28 +98,84 @@ def search_emails() -> list[dict]:
     return list(emails_by_id.values())
 
 
-def post_to_app(email: dict) -> dict:
-    """Send a single email to the app's /api/inbox/scan endpoint."""
+def get_email_attachments(email_id: str) -> list[dict]:
+    """Fetch attachment metadata and content for an email."""
+    attachments = []
+    try:
+        # Try to get attachment list via the Gmail connector
+        result = call_tool("gcal", "get_email_attachments", {"email_id": email_id})
+        if isinstance(result, str):
+            result = json.loads(result)
+
+        att_list = result.get("attachments", []) if isinstance(result, dict) else []
+
+        for att in att_list:
+            filename = att.get("filename", "")
+            mime_type = att.get("mime_type", "")
+            size = att.get("size", 0)
+            att_id = att.get("attachment_id") or att.get("id", "")
+
+            # Check if we can/should process this attachment
+            ext = os.path.splitext(filename)[1].lower()
+            if mime_type not in PROCESSABLE_MIME_TYPES and ext not in PROCESSABLE_EXTENSIONS:
+                continue
+            if size > MAX_ATTACHMENT_SIZE:
+                print(f"[gmail_scan]   Skipping attachment '{filename}' — too large ({size} bytes)")
+                continue
+
+            # Download the attachment content
+            try:
+                content_result = call_tool("gcal", "get_attachment_content", {
+                    "email_id": email_id,
+                    "attachment_id": att_id
+                })
+                if isinstance(content_result, str):
+                    content_result = json.loads(content_result)
+
+                content_b64 = content_result.get("content_base64", "")
+                content_text = content_result.get("content_text", "")
+
+                attachments.append({
+                    "filename": filename,
+                    "mime_type": mime_type,
+                    "content_base64": content_b64,
+                    "content_text": content_text,
+                })
+                print(f"[gmail_scan]   Downloaded attachment: {filename} ({mime_type})")
+            except Exception as e:
+                print(f"[gmail_scan]   Failed to download '{filename}': {e}")
+
+    except Exception as e:
+        # Attachment fetching is optional — don't fail the whole scan
+        if "not found" not in str(e).lower() and "not implemented" not in str(e).lower():
+            print(f"[gmail_scan]   Attachment fetch error: {e}")
+
+    return attachments
+
+
+def post_to_app(email: dict, attachments: list[dict] = None) -> dict:
+    """Send a single email (with attachments) to the app's /api/inbox/scan endpoint."""
     import urllib.request
 
-    # Connector field names (from live response shape)
-    gmail_id  = email.get("email_id") or email.get("id", "")
-    subject   = email.get("subject", "(no subject)")
-    sender    = email.get("from_") or email.get("from") or email.get("sender", "")
-    date      = email.get("date", "")
-    snippet   = email.get("snippet") or email.get("body_preview", "")
-    body      = email.get("body") or email.get("body_uncompressed") or ""
+    gmail_id = email.get("email_id") or email.get("id", "")
+    subject = email.get("subject", "(no subject)")
+    sender = email.get("from_") or email.get("from") or email.get("sender", "")
+    date = email.get("date", "")
+    snippet = email.get("snippet") or email.get("body_preview", "")
+    body = email.get("body") or email.get("body_uncompressed") or ""
+    html_body = email.get("html_body") or email.get("body_html") or ""
 
     payload = json.dumps({
         "gmail_id": gmail_id,
-        "subject":  subject,
-        "from":     sender,
-        "date":     date,
-        "snippet":  snippet[:500],
-        "body":     body[:3000] if body else None,
+        "subject": subject,
+        "from": sender,
+        "date": date,
+        "snippet": snippet[:500],
+        "body": body[:4000] if body else None,
+        "html_body": html_body[:8000] if html_body else None,
+        "attachments": attachments or [],
     }).encode()
 
-    # Try the production proxy URL, fall back gracefully
     url = f"{APP_API.rstrip('/')}/api/inbox/scan"
     req = urllib.request.Request(
         url,
@@ -121,7 +184,7 @@ def post_to_app(email: dict) -> dict:
         method="POST"
     )
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read())
     except Exception as e:
         print(f"[gmail_scan] API error for '{subject}': {e}")
@@ -130,6 +193,7 @@ def post_to_app(email: dict) -> dict:
 
 def main():
     print(f"[gmail_scan] Starting — {datetime.now().isoformat()}")
+    print(f"[gmail_scan] Enhanced mode: attachment parsing enabled")
 
     try:
         emails = search_emails()
@@ -142,19 +206,31 @@ def main():
         return
 
     new_items = 0
-    skipped   = 0
-    errors    = 0
+    skipped = 0
+    errors = 0
+    attachments_processed = 0
 
     for email in emails:
         subject = email.get("subject", "(no subject)")
+        email_id = email.get("email_id") or email.get("id", "")
+
         try:
-            result = post_to_app(email)
+            # Fetch attachments for this email
+            attachments = []
+            if email_id:
+                attachments = get_email_attachments(email_id)
+                if attachments:
+                    attachments_processed += len(attachments)
+
+            result = post_to_app(email, attachments)
+
             if result.get("skipped"):
                 skipped += 1
             elif result.get("extracted") and len(result["extracted"]) > 0:
                 count = len(result["extracted"])
                 new_items += count
-                print(f"[gmail_scan] ✓ '{subject}' → {count} item(s) extracted")
+                att_note = f" (+{len(attachments)} attachments)" if attachments else ""
+                print(f"[gmail_scan] ✓ '{subject}' → {count} item(s) extracted{att_note}")
             else:
                 print(f"[gmail_scan] – '{subject}' → nothing extractable")
         except Exception as e:
@@ -162,10 +238,11 @@ def main():
             print(f"[gmail_scan] ✗ '{subject}': {e}")
 
     print(f"\n[gmail_scan] Done — {new_items} new items, {skipped} skipped (already seen), {errors} errors")
+    if attachments_processed > 0:
+        print(f"[gmail_scan] Processed {attachments_processed} attachments total")
 
-    # Notify the user if anything new was found
     if new_items > 0:
-        return new_items  # signal to cron wrapper to send notification
+        return new_items
 
 
 if __name__ == "__main__":

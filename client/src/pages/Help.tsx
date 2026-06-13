@@ -166,6 +166,8 @@ export default function Help() {
           <ModuleRow icon={Inbox} name="Inbox" desc="Review items extracted from email scans. Accept to add to calendar or dismiss." />
           <ModuleRow icon={MessageSquare} name="Messages" desc="Family message board for quick notes and reminders between family members." />
           <ModuleRow icon={Tag} name="Categories" desc="Manage custom categories for organizing events and items." />
+          <ModuleRow icon={Calendar} name="Home & Property" desc="Track maintenance tasks, assets, service providers, and work history across multiple properties. Supports recurring tasks and seasonal checklists." />
+          <ModuleRow icon={Calendar} name="Carpool" desc="Daily transport planner showing who needs to be where. Auto-generates rides from sports/events, detects scheduling conflicts, manages drivers, vehicles, and carpool groups with rotation tracking." />
         </div>
       </Section>
 

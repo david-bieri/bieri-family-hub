@@ -306,3 +306,96 @@ CREATE INDEX IF NOT EXISTS maintenance_tasks_status_idx ON maintenance_tasks(sta
 CREATE INDEX IF NOT EXISTS maintenance_tasks_due_idx ON maintenance_tasks(due_date);
 CREATE INDEX IF NOT EXISTS maintenance_log_property_idx ON maintenance_log(property_id);
 CREATE INDEX IF NOT EXISTS property_assets_property_idx ON property_assets(property_id);
+
+-- ─── Carpool & Transportation (v1.7) ─────────────────────────────────────────
+
+-- Vehicles — family vehicles available for transport
+CREATE TABLE IF NOT EXISTS vehicles (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  make_model  TEXT,
+  color       TEXT,
+  seats       INTEGER DEFAULT 5,
+  notes       TEXT,
+  active      BOOLEAN DEFAULT TRUE,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Drivers — who can drive (parents, trusted adults, carpool partners)
+CREATE TABLE IF NOT EXISTS drivers (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  relationship TEXT DEFAULT 'parent',
+  phone       TEXT,
+  email       TEXT,
+  vehicle_id  TEXT REFERENCES vehicles(id) ON DELETE SET NULL,
+  is_family   BOOLEAN DEFAULT TRUE,
+  notes       TEXT,
+  active      BOOLEAN DEFAULT TRUE,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Ride Requests — individual transport needs (derived from schedule or manual)
+CREATE TABLE IF NOT EXISTS ride_requests (
+  id              TEXT PRIMARY KEY,
+  child_id        TEXT NOT NULL,
+  date            TEXT NOT NULL,
+  pickup_time     TEXT,
+  pickup_location TEXT,
+  dropoff_time    TEXT,
+  dropoff_location TEXT,
+  activity        TEXT,
+  source_event_id TEXT,
+  source_type     TEXT,
+  status          TEXT DEFAULT 'unassigned',
+  assigned_driver TEXT REFERENCES drivers(id) ON DELETE SET NULL,
+  assigned_vehicle TEXT REFERENCES vehicles(id) ON DELETE SET NULL,
+  notes           TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Carpool Groups — recurring carpool arrangements with other families
+CREATE TABLE IF NOT EXISTS carpool_groups (
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  activity      TEXT,
+  day_of_week   TEXT,
+  pickup_time   TEXT,
+  dropoff_time  TEXT,
+  pickup_location TEXT,
+  dropoff_location TEXT,
+  child_ids     TEXT[] DEFAULT '{}',
+  rotation      JSONB DEFAULT '[]',
+  notes         TEXT,
+  active        BOOLEAN DEFAULT TRUE,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Transport Log — history of completed rides (for tracking patterns)
+CREATE TABLE IF NOT EXISTS transport_log (
+  id            TEXT PRIMARY KEY,
+  date          TEXT NOT NULL,
+  driver_id     TEXT REFERENCES drivers(id) ON DELETE SET NULL,
+  vehicle_id    TEXT REFERENCES vehicles(id) ON DELETE SET NULL,
+  child_ids     TEXT[] DEFAULT '{}',
+  pickup_location TEXT,
+  dropoff_location TEXT,
+  activity      TEXT,
+  miles         NUMERIC,
+  notes         TEXT,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Seed family drivers
+INSERT INTO drivers (id, name, relationship, is_family, active)
+VALUES
+  ('driver-david', 'David', 'parent', TRUE, TRUE),
+  ('driver-nancy', 'Nancy', 'parent', TRUE, TRUE)
+ON CONFLICT (id) DO NOTHING;
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS ride_requests_date_idx ON ride_requests(date);
+CREATE INDEX IF NOT EXISTS ride_requests_child_idx ON ride_requests(child_id);
+CREATE INDEX IF NOT EXISTS ride_requests_status_idx ON ride_requests(status);
+CREATE INDEX IF NOT EXISTS transport_log_date_idx ON transport_log(date);
+CREATE INDEX IF NOT EXISTS carpool_groups_active_idx ON carpool_groups(active);
