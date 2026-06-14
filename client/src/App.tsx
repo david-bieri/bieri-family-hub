@@ -17,7 +17,7 @@ import FamilyCalendar from "./pages/FamilyCalendar";
 import SharedCalendar from "./pages/SharedCalendar";
 import InboxImports from "./pages/InboxImports";
 import Pets from "./pages/Pets";
-import Messages from "./pages/Messages";
+import ActivityFeed from "./pages/ActivityFeed";
 import Help from "./pages/Help";
 import HomeProperty from "./pages/HomeProperty";
 import Carpool from "./pages/Carpool";
@@ -45,7 +45,7 @@ function AppRoutes() {
           <Route path="/family-calendar" component={FamilyCalendar} />
           <Route path="/inbox" component={InboxImports} />
           <Route path="/pets" component={Pets} />
-          <Route path="/messages" component={Messages} />
+          <Route path="/activity" component={ActivityFeed} />
           <Route path="/home-property" component={HomeProperty} />
           <Route path="/carpool" component={Carpool} />
           <Route path="/help" component={Help} />

@@ -399,3 +399,43 @@ CREATE INDEX IF NOT EXISTS ride_requests_child_idx ON ride_requests(child_id);
 CREATE INDEX IF NOT EXISTS ride_requests_status_idx ON ride_requests(status);
 CREATE INDEX IF NOT EXISTS transport_log_date_idx ON transport_log(date);
 CREATE INDEX IF NOT EXISTS carpool_groups_active_idx ON carpool_groups(active);
+
+-- ─── Activity Log & Notifications (v1.8) ────────────────────────────────────
+
+-- Activity log — stores all outbound notifications and system events
+CREATE TABLE IF NOT EXISTS activity_log (
+  id              TEXT PRIMARY KEY,
+  type            TEXT NOT NULL DEFAULT 'system',
+  priority        TEXT DEFAULT 'normal',
+  title           TEXT NOT NULL,
+  body            TEXT,
+  related_id      TEXT,
+  related_type    TEXT,
+  channels_used   JSONB DEFAULT '[]',
+  created_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Notification preferences (per-user opt-in/out)
+CREATE TABLE IF NOT EXISTS notification_prefs (
+  id              TEXT PRIMARY KEY,
+  user_name       TEXT NOT NULL,
+  channel         TEXT NOT NULL,
+  enabled         BOOLEAN DEFAULT true,
+  destination     TEXT,
+  created_at      TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_name, channel)
+);
+
+-- Seed notification preferences for parents
+INSERT INTO notification_prefs (id, user_name, channel, enabled, destination)
+VALUES
+  ('pref-david-sms', 'david', 'sms', true, NULL),
+  ('pref-david-telegram', 'david', 'telegram', true, NULL),
+  ('pref-nancy-sms', 'nancy', 'sms', true, NULL),
+  ('pref-nancy-telegram', 'nancy', 'telegram', true, NULL)
+ON CONFLICT (user_name, channel) DO NOTHING;
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS activity_log_type_idx ON activity_log(type);
+CREATE INDEX IF NOT EXISTS activity_log_created_idx ON activity_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS activity_log_related_idx ON activity_log(related_id);

@@ -1,7 +1,7 @@
 import "dotenv/config";
 import express, { Response, NextFunction } from 'express';
 import type { Request } from 'express';
-import { registerRoutes, registerInboxRoutes, registerMessageRoutes, registerCarpoolRoutes } from "./routes";
+import { registerRoutes, registerInboxRoutes, registerMessageRoutes, registerCarpoolRoutes, registerActivityRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
 
@@ -66,6 +66,16 @@ app.use((req, res, next) => {
   registerInboxRoutes(app);
   registerMessageRoutes(app);
   registerCarpoolRoutes(app);
+  registerActivityRoutes(app);
+
+  // Start Telegram bot (long-polling, no webhook needed)
+  const { startTelegramBot } = await import("./telegramBot");
+  startTelegramBot();
+
+  // Start notification scheduler (morning digest, carpool reminders, overdue sweep)
+  const { startNotificationScheduler, registerSchedulerRoutes } = await import("./notificationScheduler");
+  registerSchedulerRoutes(app);
+  startNotificationScheduler();
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

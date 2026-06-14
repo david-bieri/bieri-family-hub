@@ -198,6 +198,36 @@ export default function Help() {
         </div>
       </Section>
 
+      {/* Notifications & Telegram */}
+      <Section title="Notifications & Telegram Bot" icon={MessageSquare}>
+        <p>The hub sends smart notifications via <strong>SMS</strong> and <strong>Telegram</strong>:</p>
+        <div className="space-y-2 mt-2">
+          <p className="font-medium">Automatic Notifications:</p>
+          <ul className="list-disc list-inside space-y-1 pl-2">
+            <li><strong>Morning Digest</strong> (6:45am) — Today's events, rides, and overdue items</li>
+            <li><strong>Carpool Reminders</strong> (30 min before) — Unassigned rides that need a driver</li>
+            <li><strong>Overdue Sweep</strong> (8:00am) — Newly overdue payments and registrations</li>
+            <li><strong>Evening Preview</strong> (8:00pm) — Tomorrow's schedule at a glance</li>
+          </ul>
+          <p className="font-medium mt-3">SMS Quick-Add:</p>
+          <p>Text your Family Hub number with tags to add items instantly:</p>
+          <div className="bg-muted/50 rounded-lg p-3 font-mono text-xs space-y-1">
+            <p>#MED @Clara dentist Thu 2pm</p>
+            <p>#CAMP @Cole soccer camp July 14-18</p>
+            <p>#HOUSE fix gutter leak by Friday</p>
+          </div>
+          <p className="font-medium mt-3">Telegram Bot Commands:</p>
+          <ul className="list-disc list-inside space-y-1 pl-2">
+            <li><code>/today</code> — Today's full schedule</li>
+            <li><code>/week</code> — This week's overview</li>
+            <li><code>/rides</code> — Today's transport needs</li>
+            <li><code>/overdue</code> — All overdue items</li>
+            <li><code>/add #TAG @Name details</code> — Quick-add an item</li>
+          </ul>
+          <p className="text-xs text-muted-foreground mt-2">Telegram also sends interactive buttons (e.g., "I'll get them" for carpool alerts).</p>
+        </div>
+      </Section>
+
       {/* Tips */}
       <Section title="Tips & Shortcuts" icon={Shield}>
         <ul className="list-disc list-inside space-y-1.5 text-sm pl-1">

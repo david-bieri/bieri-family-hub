@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import {
   LayoutDashboard, Calendar, Stethoscope, Trophy,
-  Tent, CreditCard, LogOut, Menu, X, Moon, Sun, Tag, CalendarDays, Inbox, PawPrint, MessageSquare, BookOpen, Home, Car
+  Tent, CreditCard, LogOut, Menu, X, Moon, Sun, Tag, CalendarDays, Inbox, PawPrint, Bell, BookOpen, Home, Car
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -23,7 +23,7 @@ const NAV = [
   { href: "/carpool",         label: "Carpool",          icon: Car,          badgeKey: "carpool" },
   { href: "/pets",           label: "Pets",            icon: PawPrint },
   { href: "/inbox",          label: "Inbox",           icon: Inbox,        badgeKey: "inbox" },
-  { href: "/messages",       label: "Messages",        icon: MessageSquare, badgeKey: "messages" },
+  { href: "/activity",       label: "Activity",        icon: Bell, badgeKey: "activity" },
   { href: "/help",            label: "Help & Guide",    icon: BookOpen },
 ];
 
@@ -76,11 +76,11 @@ function useNavBadges(): Record<string, number> {
     queryFn: async () => (await apiRequest("GET", "/api/registrations")).json(),
     refetchInterval: 5 * 60_000,
   });
-  const { data: msgCountData } = useQuery({
-    queryKey: ["/api/messages/count"],
+  const { data: activityCountData } = useQuery({
+    queryKey: ["/api/activity/count"],
     queryFn: async () => {
       const since = encodeURIComponent(getLastReadMessages());
-      return (await apiRequest("GET", `/api/messages/count?since=${since}`)).json();
+      return (await apiRequest("GET", `/api/activity/count?since=${since}`)).json();
     },
     refetchInterval: 30_000,
   });
@@ -119,7 +119,7 @@ function useNavBadges(): Record<string, number> {
     payments: overduePayments,
     medical:  upcomingAppts,
     camps:    urgentRegs,
-    messages: (msgCountData as any)?.count || 0,
+    activity: (activityCountData as any)?.count || 0,
     home:     (homeCountData as any)?.count || 0,
     carpool:  (carpoolCountData as any)?.count || 0,
   };

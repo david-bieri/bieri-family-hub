@@ -855,16 +855,21 @@ export function registerMessageRoutes(app: Express) {
 
   // POST /api/sms/inbound — Twilio webhook for inbound SMS
   // Twilio posts application/x-www-form-urlencoded with From, Body, etc.
+  //
+  // SMART ROUTING:
+  //   - If the text contains #TAG syntax → route through extraction pipeline (quick-add)
+  //   - Otherwise → save as a plain message in the activity log
+  //
+  // Response: Always TwiML (Twilio requires XML response)
   app.post("/api/sms/inbound", async (req, res) => {
     const from: string = req.body.From || "";
     const body: string = req.body.Body || "";
     if (!from || !body) {
-      // Respond with empty TwiML so Twilio doesn't retry
       res.set("Content-Type", "text/xml");
       return res.send("<?xml version='1.0' encoding='UTF-8'?><Response></Response>");
     }
 
-    // Resolve display name from phone_contacts table, fall back to raw number
+    // Resolve sender name from phone_contacts table
     const { data: contact } = await supabase
       .from("phone_contacts")
       .select("name")
@@ -872,13 +877,113 @@ export function registerMessageRoutes(app: Express) {
       .single();
     const author = contact?.name || from;
 
-    await supabase
-      .from("messages")
-      .insert({ id: nanoid(), channel: "sms", author, body: body.trim(), phone_from: from });
+    // ─── Smart routing: check if text contains #TAG syntax ─────────────────
+    const hasTag = /#(CAMP|SPORT|SCHOOL|MED|PAY|REG|PET|FAM|OFFICE|TRAVEL|HOUSE|INVITE)/i.test(body);
 
-    // Respond with empty TwiML — no auto-reply
+    let replyText = "";
+
+    if (hasTag) {
+      // ── Quick-add: route through extraction pipeline ──────────────────────
+      try {
+        const smsId = `sms-${Date.now()}-${nanoid(6)}`;
+        const extracted = await extractFromEmail(
+          body.trim(),   // SMS body treated as email subject (fast-path)
+          from,
+          "",            // no snippet
+          "",            // no body
+          undefined,     // no HTML
+          undefined      // no attachments
+        );
+
+        if (extracted.length > 0) {
+          // Save to pending_imports for review in the Inbox
+          const importId = nanoid();
+          await supabase.from("pending_imports").insert({
+            id: importId,
+            source: "sms",
+            raw_subject: body.trim(),
+            raw_from: author,
+            raw_date: new Date().toISOString(),
+            raw_snippet: `SMS from ${author}`,
+            gmail_id: smsId,
+            extracted,
+            status: "pending",
+          });
+
+          // Log the activity
+          const { logActivity } = await import("./notifications");
+          await logActivity(
+            `SMS quick-add from ${author}`,
+            `"${body.trim()}" → ${extracted.length} item(s) added to inbox`,
+            "item_added"
+          );
+
+          replyText = `Got it! ${extracted.length} item(s) added to the Family Hub inbox for review.`;
+        } else {
+          replyText = `Received, but couldn't extract an actionable item. Try: #TAG @Name description`;
+        }
+      } catch (err: any) {
+        console.error("[sms/inbound] Extraction error:", err.message);
+        replyText = `Error processing your message. Try again or check the app.`;
+      }
+    } else {
+      // ── Plain message: log to activity feed ───────────────────────────────
+      const { logActivity } = await import("./notifications");
+      await logActivity(
+        `SMS from ${author}`,
+        body.trim(),
+        "system"
+      );
+      replyText = "";
+    }
+
+    // Respond with TwiML (optional auto-reply)
     res.set("Content-Type", "text/xml");
-    res.send("<?xml version='1.0' encoding='UTF-8'?><Response></Response>");
+    if (replyText) {
+      res.send(`<?xml version='1.0' encoding='UTF-8'?><Response><Message>${replyText}</Message></Response>`);
+    } else {
+      res.send("<?xml version='1.0' encoding='UTF-8'?><Response></Response>");
+    }
+  });
+
+  // POST /api/sms/send — outbound SMS (used by notification engine)
+  // Body: { to: string, body: string }
+  app.post("/api/sms/send", async (req, res) => {
+    const { to, body: msgBody } = req.body;
+    if (!to || !msgBody) return res.status(400).json({ error: "to and body required" });
+
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const fromNumber = process.env.TWILIO_PHONE_NUMBER;
+
+    if (!accountSid || !authToken || !fromNumber) {
+      return res.status(501).json({ error: "Twilio not configured" });
+    }
+
+    try {
+      const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
+      const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+      const params = new URLSearchParams({ To: to, From: fromNumber, Body: msgBody });
+
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${auth}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: params.toString(),
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        return res.status(500).json({ error: err });
+      }
+
+      const result = await response.json();
+      res.json({ ok: true, sid: result.sid });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 }
 
@@ -1645,4 +1750,51 @@ export function registerCarpoolRoutes(app: Express) {
 function timeToMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number);
   return (h || 0) * 60 + (m || 0);
+}
+
+// ─── ACTIVITY LOG ─────────────────────────────────────────────────────────────
+export function registerActivityRoutes(app: Express) {
+
+  // GET /api/activity — latest 200 activity items, newest first
+  app.get("/api/activity", async (_req, res) => {
+    const { data, error } = await supabase
+      .from("activity_log")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(200);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+  });
+
+  // GET /api/activity/count?since=ISO — count new items since timestamp
+  app.get("/api/activity/count", async (req, res) => {
+    const since = req.query.since as string || new Date(0).toISOString();
+    const { count, error } = await supabase
+      .from("activity_log")
+      .select("*", { count: "exact", head: true })
+      .gt("created_at", since);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ count: count || 0 });
+  });
+
+  // DELETE /api/activity/:id — delete a single activity item
+  app.delete("/api/activity/:id", async (req, res) => {
+    const { error } = await supabase
+      .from("activity_log")
+      .delete()
+      .eq("id", req.params.id);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true });
+  });
+
+  // POST /api/activity/clear — clear all activity older than 30 days
+  app.post("/api/activity/clear", async (_req, res) => {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { error } = await supabase
+      .from("activity_log")
+      .delete()
+      .lt("created_at", cutoff);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json({ ok: true, message: "Cleared activity older than 30 days" });
+  });
 }
