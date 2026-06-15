@@ -291,20 +291,7 @@ export default function FamilyCalendar() {
             </div>
           </div>
 
-          {/* Custody legend (below calendar) */}
-          {sortedBlocks.length > 0 && (
-            <div className="flex items-center gap-4 text-xs text-muted-foreground">
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-sm bg-emerald-100 border border-emerald-200" />
-                <span>Bieri household</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-sm bg-amber-100 border border-amber-200" />
-                <span>James household</span>
-              </div>
-              <span className="text-muted-foreground/60 ml-auto">Cole & Airlie custody schedule</span>
-            </div>
-          )}
+
 
           {/* Day detail panel */}
           {selectedDay && selectedItems.length > 0 && (
