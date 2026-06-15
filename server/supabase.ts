@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import ws from "ws";
 
 // Accept both VITE_-prefixed (Render dashboard) and plain names
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
@@ -9,7 +10,7 @@ if (!supabaseUrl || !supabaseKey) {
 }
 
 export const supabase = supabaseUrl && supabaseKey
-  ? createClient(supabaseUrl, supabaseKey)
+  ? createClient(supabaseUrl, supabaseKey, { realtime: { transport: ws } })
   : null;
 
 export default supabase;
