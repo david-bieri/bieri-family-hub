@@ -10,9 +10,10 @@
  *   4. Multi-item extraction: single email → multiple structured items
  *   5. Deadline detection: "RSVP by", "register by", "due by" phrases
  *   6. Location extraction: addresses, venue names, room numbers
- *   7. Thread-aware: strips quoted replies to focus on new content
- *   8. LLM fallback with enhanced prompt (multi-item, location, deadline)
- *   9. Regex fallback when LLM is unavailable
+ *   7. Forward-aware: PRESERVES forwarded content (booking confirmations, reservations)
+ *   8. Date disambiguation: distinguishes transaction/email dates from event dates
+ *   9. LLM extraction with chain-of-thought date reasoning
+ *  10. Regex fallback when LLM is unavailable
  *
  * FLAG SYNTAX (subject-line shorthand — skips LLM entirely):
  *   #CAMP @Clara @Airlie VA Techniques: Ninja Warrior Camp
@@ -32,6 +33,7 @@ export interface ExtractedItem {
   date?: string;        // ISO yyyy-MM-dd
   time?: string;        // HH:mm 24h
   end_date?: string;
+  end_time?: string;
   amount?: string;      // for payments, e.g. "$150"
   child_ids?: string[]; // matched child first names (lowercase)
   pet_ids?: string[];   // matched pet first names (lowercase)
@@ -68,7 +70,6 @@ const TAG_MAP: Record<string, { category: string; type: ExtractedItem["type"] }>
 };
 
 // ─── Sender Recognition ──────────────────────────────────────────────────────
-// Maps known sender patterns to auto-tags. Checked before LLM to save API calls.
 interface SenderRule {
   pattern: RegExp;
   tag: string;
@@ -87,6 +88,10 @@ const SENDER_RULES: SenderRule[] = [
   { pattern: /camp|ymca|recreation|rec\.gov|summer\s*program/i, tag: "CAMP", category: "camp", type: "registration" },
   // Payment / billing
   { pattern: /billing|invoice|payment|paypal|venmo|stripe|square/i, tag: "PAY", category: "payment", type: "payment" },
+  // Travel / bookings
+  { pattern: /booking\.com|airbnb|vrbo|expedia|hotels?\.com|airline|delta|united|southwest|american|frontier|spirit|kayak|tripadvisor/i, tag: "TRAVEL", category: "travel", type: "event" },
+  // Reservations / restaurants
+  { pattern: /opentable|resy|yelp.*reserv|reservation/i, tag: "FAM", category: "social", type: "event" },
 ];
 
 function detectSenderCategory(fromAddress: string): SenderRule | null {
@@ -96,44 +101,124 @@ function detectSenderCategory(fromAddress: string): SenderRule | null {
   return null;
 }
 
-// ─── Thread Stripping ────────────────────────────────────────────────────────
-// Remove quoted replies and forwarded content to focus on new information
-function stripQuotedContent(body: string): string {
-  // Common reply markers
-  const markers = [
-    /^-{3,}\s*Original Message\s*-{3,}/im,
-    /^On .+ wrote:$/im,
-    /^>{1,}/m,
-    /^From:\s+.+\nSent:\s+.+\nTo:\s+/im,
-    /^-{3,}\s*Forwarded message\s*-{3,}/im,
-    /^_{3,}$/m,
-  ];
+// ─── Forward-Aware Content Extraction ────────────────────────────────────────
+/**
+ * CRITICAL FIX: For forwarded emails, we PRESERVE the forwarded content because
+ * it typically contains the actual booking/reservation/event details.
+ * We only strip quoted REPLY threads (where someone is replying back and forth).
+ *
+ * Strategy:
+ *   - If the email is a FORWARD: keep everything, mark it as forwarded
+ *   - If the email is a REPLY thread: strip quoted replies but keep the latest message
+ */
+interface ContentAnalysis {
+  isForwarded: boolean;
+  isReply: boolean;
+  primaryContent: string;   // The main content to analyze
+  forwardedContent: string; // The forwarded portion (if any) — ALSO analyzed
+  emailSentDate?: string;   // Extracted date the email was sent (for disambiguation)
+}
 
-  let cleaned = body;
-  for (const marker of markers) {
-    const match = cleaned.match(marker);
-    if (match && match.index !== undefined) {
-      // Only strip if the marker appears after some content
-      if (match.index > 50) {
+function analyzeEmailContent(subject: string, body: string): ContentAnalysis {
+  const isForwarded = /^(Fwd?|FW):/i.test(subject) ||
+    /^-{3,}\s*Forwarded message\s*-{3,}/im.test(body) ||
+    /^Begin forwarded message/im.test(body) ||
+    /^From:\s+.+\nDate:\s+.+\nSubject:\s+/im.test(body);
+
+  const isReply = /^Re:/i.test(subject) && !isForwarded;
+
+  // Extract the email sent date from headers in forwarded content
+  let emailSentDate: string | undefined;
+  const dateHeaderMatch = body.match(
+    /(?:Date|Sent|Received):\s*(?:\w+,?\s*)?(\w+ \d{1,2},?\s*\d{4}|\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2})/i
+  );
+  if (dateHeaderMatch) {
+    emailSentDate = dateHeaderMatch[1];
+  }
+
+  if (isForwarded) {
+    // For forwards: keep EVERYTHING. The forwarded content IS the important part.
+    // Split into the forwarder's note (if any) and the forwarded body.
+    const forwardMarkers = [
+      /^-{3,}\s*Forwarded message\s*-{3,}/im,
+      /^Begin forwarded message/im,
+      /^From:\s+.+\n(?:Date|Sent):\s+.+\nTo:\s+/im,
+    ];
+
+    let splitIndex = -1;
+    for (const marker of forwardMarkers) {
+      const match = body.match(marker);
+      if (match && match.index !== undefined) {
+        splitIndex = match.index;
+        break;
+      }
+    }
+
+    if (splitIndex > 0) {
+      return {
+        isForwarded: true,
+        isReply: false,
+        primaryContent: body.slice(0, splitIndex).trim(),
+        forwardedContent: body.slice(splitIndex).trim(),
+        emailSentDate,
+      };
+    }
+
+    // No clear split point — treat entire body as forwarded content
+    return {
+      isForwarded: true,
+      isReply: false,
+      primaryContent: "",
+      forwardedContent: body,
+      emailSentDate,
+    };
+  }
+
+  if (isReply) {
+    // For replies: strip quoted content, keep only the latest message
+    const replyMarkers = [
+      /^On .+ wrote:$/im,
+      /^>{1,}/m,
+      /^From:\s+.+\nSent:\s+.+\nTo:\s+/im,
+      /^_{3,}$/m,
+    ];
+
+    let cleaned = body;
+    for (const marker of replyMarkers) {
+      const match = cleaned.match(marker);
+      if (match && match.index !== undefined && match.index > 50) {
         cleaned = cleaned.slice(0, match.index).trim();
         break;
       }
     }
+
+    return {
+      isForwarded: false,
+      isReply: true,
+      primaryContent: cleaned,
+      forwardedContent: "",
+      emailSentDate,
+    };
   }
-  return cleaned;
+
+  // Neither forward nor reply — use full body
+  return {
+    isForwarded: false,
+    isReply: false,
+    primaryContent: body,
+    forwardedContent: "",
+    emailSentDate,
+  };
 }
 
 // ─── HTML Body Parser ────────────────────────────────────────────────────────
-// Extract meaningful text from HTML email bodies
 function parseHtmlBody(html: string): string {
-  // Remove style, script, and head tags with content
   let text = html
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
     .replace(/<head[^>]*>[\s\S]*?<\/head>/gi, "")
     .replace(/<!--[\s\S]*?-->/g, "");
 
-  // Convert common block elements to newlines
   text = text
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/p>/gi, "\n\n")
@@ -142,10 +227,8 @@ function parseHtmlBody(html: string): string {
     .replace(/<\/li>/gi, "\n")
     .replace(/<\/h[1-6]>/gi, "\n\n");
 
-  // Remove remaining tags
   text = text.replace(/<[^>]+>/g, " ");
 
-  // Decode HTML entities
   text = text
     .replace(/&nbsp;/g, " ")
     .replace(/&amp;/g, "&")
@@ -159,14 +242,11 @@ function parseHtmlBody(html: string): string {
     .replace(/&mdash;/g, "—")
     .replace(/&ndash;/g, "–");
 
-  // Collapse whitespace
   text = text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
-
   return text;
 }
 
 // ─── ICS Calendar File Parser ────────────────────────────────────────────────
-// Parse .ics content into structured event data (no external dependency needed)
 interface ICSEvent {
   title: string;
   date: string;
@@ -185,7 +265,6 @@ function parseICS(icsContent: string): ICSEvent[] {
     const block = eventBlocks[i].split("END:VEVENT")[0];
 
     const getField = (name: string): string | undefined => {
-      // Handle folded lines (continuation lines start with space/tab)
       const unfolded = block.replace(/\r?\n[ \t]/g, "");
       const match = unfolded.match(new RegExp(`^${name}[;:](.*)$`, "m"));
       return match ? match[1].trim() : undefined;
@@ -199,9 +278,7 @@ function parseICS(icsContent: string): ICSEvent[] {
 
     if (!dtstart) continue;
 
-    // Parse DTSTART — handles both date-only (20260615) and datetime (20260615T140000Z)
     const parseICSDate = (dt: string): { date: string; time?: string } => {
-      // Remove VALUE=DATE: prefix or TZID parameter
       const clean = dt.replace(/^[^:]*:/, "").replace(/^VALUE=DATE:/, "");
       if (clean.length >= 8) {
         const date = `${clean.slice(0, 4)}-${clean.slice(4, 6)}-${clean.slice(6, 8)}`;
@@ -232,10 +309,8 @@ function parseICS(icsContent: string): ICSEvent[] {
 }
 
 // ─── PDF Text Extraction ─────────────────────────────────────────────────────
-// Uses pdf-parse if available, otherwise falls back to basic extraction
 async function extractPDFText(pdfBuffer: Buffer): Promise<string> {
   try {
-    // Dynamic import — pdf-parse is an optional dependency
     const pdfParse = (await import("pdf-parse")).default;
     const result = await pdfParse(pdfBuffer);
     return result.text || "";
@@ -246,19 +321,15 @@ async function extractPDFText(pdfBuffer: Buffer): Promise<string> {
 }
 
 // ─── Location Extraction ─────────────────────────────────────────────────────
-// Detect addresses, venue names, and room numbers from text
 function extractLocation(text: string): string | undefined {
-  // Street address pattern: "123 Main St" or "456 Oak Avenue, Suite 200"
   const addressRe = /\b(\d{1,5}\s+[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*\s+(?:St(?:reet)?|Ave(?:nue)?|Blvd|Boulevard|Dr(?:ive)?|Rd|Road|Ln|Lane|Way|Ct|Court|Cir(?:cle)?|Pl(?:ace)?|Pkwy|Parkway)\.?(?:,?\s*(?:Suite|Ste|Apt|#)\s*\d+)?(?:,?\s*[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*)?(?:,?\s*[A-Z]{2}\s*\d{5})?)\b/;
   const addrMatch = text.match(addressRe);
   if (addrMatch) return addrMatch[1].trim();
 
-  // Venue/building patterns
   const venueRe = /(?:at|@|location:|venue:|where:)\s*([A-Z][^,.\n]{3,50})/i;
   const venueMatch = text.match(venueRe);
   if (venueMatch) return venueMatch[1].trim();
 
-  // Room/field patterns
   const roomRe = /(?:room|field|gym|court|pool|building|bldg)\s*[#:]?\s*([A-Za-z0-9\-]+(?:\s+[A-Za-z0-9]+)?)/i;
   const roomMatch = text.match(roomRe);
   if (roomMatch) return `Room/Field ${roomMatch[1].trim()}`;
@@ -268,13 +339,11 @@ function extractLocation(text: string): string | undefined {
 
 // ─── Time Extraction ─────────────────────────────────────────────────────────
 function extractTime(text: string): string | undefined {
-  // "2:30 PM", "14:30", "2pm", "2:30pm"
   const timeRe = /\b(\d{1,2}):(\d{2})\s*(am|pm|AM|PM)\b|\b(\d{1,2})\s*(am|pm|AM|PM)\b|\b(\d{2}):(\d{2})\b/;
   const m = text.match(timeRe);
   if (!m) return undefined;
 
   if (m[1] && m[3]) {
-    // "2:30 PM" format
     let hour = parseInt(m[1]);
     const min = m[2];
     const ampm = m[3].toLowerCase();
@@ -282,14 +351,12 @@ function extractTime(text: string): string | undefined {
     if (ampm === "am" && hour === 12) hour = 0;
     return `${hour.toString().padStart(2, "0")}:${min}`;
   } else if (m[4] && m[5]) {
-    // "2pm" format
     let hour = parseInt(m[4]);
     const ampm = m[5].toLowerCase();
     if (ampm === "pm" && hour < 12) hour += 12;
     if (ampm === "am" && hour === 12) hour = 0;
     return `${hour.toString().padStart(2, "0")}:00`;
   } else if (m[6] && m[7]) {
-    // "14:30" format
     return `${m[6]}:${m[7]}`;
   }
   return undefined;
@@ -299,14 +366,11 @@ function extractTime(text: string): string | undefined {
 
 interface FlagParseResult {
   tag: string | null;
-  mentions: string[];   // lowercased matched names
+  mentions: string[];
   petMentions: string[];
   cleanSubject: string;
 }
 
-/**
- * Parses the new #TAG @Name flag syntax from a subject line.
- */
 function parseFlagSyntax(subject: string): FlagParseResult {
   const tagMatches = subject.match(/#([A-Za-z]+)/g) || [];
   const tag = tagMatches.length > 0
@@ -347,7 +411,7 @@ function detectMembersInText(text: string): { children: string[]; pets: string[]
 
 const MONTHS: Record<string, string> = {
   january:"01", february:"02", march:"03", april:"04",
-  may:"05",     june:"06",     july:"07",  august:"08",
+  may:"05",     june:"06",     july:"07",   august:"08",
   september:"09", october:"10", november:"11", december:"12",
 };
 
@@ -474,7 +538,7 @@ function fastPathExtract(
     }];
   }
 
-  // ── Special handling for #INVITE — extract RSVP deadline as separate item ──
+  // ── Special handling for #INVITE ──────────────────────────────────────────
   if (tag === "INVITE") {
     const items: ExtractedItem[] = [];
     const date = extractFirstDate(fullText);
@@ -514,70 +578,105 @@ function fastPathExtract(
   }];
 }
 
-// ─── LLM extraction (enhanced prompt) ────────────────────────────────────────
+// ─── LLM extraction (redesigned prompt with date disambiguation) ─────────────
 
-const SYSTEM_PROMPT = `You are an assistant that extracts structured calendar items from family email content.
+const SYSTEM_PROMPT = `You are an expert assistant that extracts structured calendar items from family emails.
+You MUST carefully distinguish between different types of dates in emails.
 
-The family has 2 parents (David and Nancy) and 6 children: Cole (13), Greta (12), Airlie (11), Clara (9), Heidi (3), Daisy (1).
-Pets: Otis (Bernese Mountain Dog), Athena (Russian Blue cat), Persephone (Black Bombay cat).
-Properties: 709 Cedarview Dr. (primary home), 1016 Highland Cir. (secondary property).
+## FAMILY CONTEXT
+Parents: David and Nancy Bieri
+Children: Cole (13), Greta (12), Airlie (11), Clara (9), Heidi (3), Daisy (1)
+Pets: Otis (Bernese Mountain Dog), Athena (Russian Blue cat), Persephone (Black Bombay cat)
+Properties: 709 Cedarview Dr. (primary home), 1016 Highland Cir. (secondary property)
+Location: Blacksburg, Virginia
 
-## What to extract
+## CRITICAL: DATE DISAMBIGUATION
 
-From the email (and any attachment text provided), extract ALL of the following that apply:
-- Events (school events, performances, field trips, sports games, camp sessions, birthday parties, social gatherings)
+Emails contain MULTIPLE types of dates. You MUST identify the correct one for each item:
+
+1. **Transaction/Email dates** (IGNORE these — they are NOT event dates):
+   - "Order confirmed on June 15" → this is when the booking was MADE, not the event
+   - "Date: Mon, Jun 15, 2026 3:42 PM" → email header timestamp
+   - "Purchased on 06/15/2026" → purchase date
+   - "Confirmation sent June 15" → notification date
+   - "Thank you for your order placed June 15" → order date
+
+2. **Event/Stay dates** (USE these — they are the ACTUAL dates to put on the calendar):
+   - "Check-in: July 20" / "Check-out: July 25" → event is July 20-25
+   - "Reservation for July 20-25" → event is July 20-25
+   - "Camp runs June 23-27" → event is June 23-27
+   - "Appointment on July 3 at 2:00 PM" → event is July 3
+   - "Game on Saturday, June 28 at 10am" → event is June 28
+   - "Flight departs July 20 at 8:15 AM" → event is July 20
+
+3. **Deadline dates** (USE these for registration/payment items):
+   - "Register by June 10" → deadline is June 10
+   - "Payment due June 15" → deadline is June 15
+   - "RSVP by Friday June 12" → deadline is June 12
+
+## REASONING PROCESS
+
+Before outputting JSON, mentally walk through these steps:
+1. Is this email a forwarded booking/reservation/confirmation? If yes, look for check-in/check-out, departure/arrival, or event start dates — NOT the email date or purchase date.
+2. What is the ACTIONABLE date the family needs on their calendar? (When do they need to BE somewhere or DO something?)
+3. Are there multiple actionable items? (e.g., a camp confirmation has both the camp dates AND a packing list deadline)
+
+## FORWARDED EMAILS
+
+When you see forwarded email markers (--- Forwarded message ---, Fwd:, Begin forwarded message), the FORWARDED CONTENT is the important part. The forwarder's note (if any) is just context. Extract items from the forwarded content.
+
+Common forwarded patterns:
+- Booking confirmations (hotels, flights, rentals) → extract the STAY/TRAVEL dates, not the booking date
+- Camp/program confirmations → extract the PROGRAM dates, not the registration date
+- Appointment confirmations → extract the APPOINTMENT date
+- Event invitations → extract the EVENT date
+- Order confirmations → usually NOT calendar-worthy unless it's a delivery/pickup date
+
+## WHAT TO EXTRACT
+
+From the email, extract ALL actionable items:
+- Events (school events, performances, field trips, sports games, camp sessions, parties, travel)
 - Appointments (doctor, dentist, therapy, vet visits)
-- Payment deadlines (camp fees, registration fees, sports fees, vet bills, school fees)
-- Registration deadlines (camp sign-ups, school enrollment, sports registration)
-- Tasks / reminders (forms to fill, things to return, actions needed, RSVP deadlines, permission slips to sign)
+- Payment deadlines (fees, deposits, bills due)
+- Registration deadlines (sign-ups, enrollment)
+- Tasks/reminders (forms, RSVPs, permission slips, things to pack/bring)
 
-## IMPORTANT: Extract MULTIPLE items from a single email
+## MULTI-ITEM EXTRACTION
 
-Many emails (especially school newsletters or camp communications) contain MULTIPLE dates, deadlines, or events.
-You MUST extract ALL of them as separate items. Do NOT stop at the first one.
+Many emails contain MULTIPLE dates/items. Extract ALL of them separately.
+Example: A camp confirmation might yield:
+  1. Event: "Ninja Warrior Camp" June 23-27 (the camp itself)
+  2. Task: "Pack lunch and water bottle" June 23 (first day reminder)
+  3. Payment: "Remaining balance due" June 20 ($150)
 
-## Critical: distinguish event vs. deadline
+## FIELD DEFINITIONS
 
-These are DIFFERENT things — extract them as SEPARATE items:
-- A REGISTRATION DEADLINE is a date by which you must sign up / pay. Use type="registration".
-- A CAMP/PROGRAM EVENT is the actual dates the program runs. Use type="event".
-- An RSVP DEADLINE is a date by which you must respond. Use type="task" with title "RSVP: ..."
+Return a JSON array of objects with these fields:
+- id: short random slug (8 chars)
+- type: event | appointment | payment | registration | task
+- title: concise title (max 60 chars) — should describe WHAT is happening, not the email subject
+- date: ISO yyyy-MM-dd — the ACTIONABLE date (event start, deadline, appointment date)
+- time: 24h HH:mm if mentioned, else omit
+- end_date: ISO yyyy-MM-dd — for multi-day events (last day), else omit
+- end_time: 24h HH:mm if mentioned, else omit
+- amount: dollar amount as string (e.g. "$150"), else omit
+- child_ids: array of child first names lowercase (e.g. ["cole"]). Empty [] if family-wide.
+- pet_ids: array of pet names lowercase if relevant, else omit
+- category: school | sports | medical | camp | family | payment | pets | home | office | travel | social | other
+- location: venue, address, hotel name, field, etc. if mentioned. Omit if not found.
+- notes: extra context (max 120 chars) — include confirmation numbers, flight numbers, etc.
+- confidence: high | medium | low
+- source_hint: short direct quote (max 80 chars) from the email that contains the key date/detail
 
-If an email mentions BOTH a registration deadline AND a program start/end date, return TWO separate items.
+## EXAMPLES
 
-## Location extraction
+Input: Forwarded hotel confirmation — "Booking confirmed! Check-in: July 20, 2026. Check-out: July 25, 2026. Hampton Inn Roanoke. Confirmation #HX8829."
+Output: [{"type":"event","title":"Hampton Inn Roanoke stay","date":"2026-07-20","end_date":"2026-07-25","category":"travel","location":"Hampton Inn Roanoke","notes":"Confirmation #HX8829","confidence":"high","source_hint":"Check-in: July 20, 2026. Check-out: July 25, 2026"}]
 
-If a location, address, venue, field, room, or building is mentioned, include it in the "location" field.
-Examples: "709 Cedarview Dr.", "Field 3", "Room 204", "Riverside Park Pavilion", "Dr. Smith's office"
+Input: "Your order is confirmed! Ordered June 15. Camp Ninja Warrior for Cole, June 23-27. Balance of $150 due by June 20."
+Output: [{"type":"event","title":"Camp Ninja Warrior","date":"2026-06-23","end_date":"2026-06-27","child_ids":["cole"],"category":"camp","confidence":"high","source_hint":"Camp Ninja Warrior for Cole, June 23-27"},{"type":"payment","title":"Camp Ninja Warrior balance due","date":"2026-06-20","amount":"$150","child_ids":["cole"],"category":"camp","confidence":"high","source_hint":"Balance of $150 due by June 20"}]
 
-## Deadline detection
-
-Look for phrases like:
-- "register by June 10" → registration with date June 10
-- "RSVP by Friday" → task with the Friday date
-- "due by June 15" → payment with date June 15
-- "last day to sign up: June 8" → registration with date June 8
-- "respond by end of day Tuesday" → task with that Tuesday's date
-
-## Field definitions
-
-For each item return a JSON object with these fields:
-- id: a short random slug (8 chars)
-- type: one of: event | appointment | payment | registration | task
-- title: concise title (max 60 chars)
-- date: ISO date yyyy-MM-dd — for events this is the START date; for registration/payment this is the DEADLINE
-- time: 24h time HH:mm if found, else omit
-- end_date: ISO date — for events/camps that span multiple days, this is the LAST day
-- amount: dollar amount as string if mentioned (e.g. "$150"), else omit
-- child_ids: array of child first names (lowercase), e.g. ["cole", "airlie"]. Include parents ["david", "nancy"] if specifically relevant to them. Empty array if family-wide.
-- pet_ids: array of pet first names (lowercase) if relevant. Omit or empty if not pet-related.
-- category: one of: school | sports | medical | camp | family | payment | pets | home | office | travel | social | other
-- location: venue, address, field, room, or building name if mentioned. Omit if not found.
-- notes: any extra context worth preserving (max 120 chars)
-- confidence: high | medium | low — how certain you are about the extracted date/details
-- source_hint: short direct quote (max 80 chars) from the email that triggered this item
-
-Return ONLY a valid JSON array. No markdown, no explanation. If nothing extractable is found, return [].`;
+Return ONLY a valid JSON array. No markdown, no explanation. If nothing calendar-worthy is found, return [].`;
 
 // ─── Main extraction function ────────────────────────────────────────────────
 
@@ -588,13 +687,14 @@ export interface EmailInput {
   body?: string;
   html_body?: string;
   attachments?: AttachmentInput[];
+  received_date?: string; // ISO date when email was received (for disambiguation)
 }
 
 export interface AttachmentInput {
   filename: string;
   mime_type: string;
-  content_base64?: string;  // base64-encoded file content
-  content_text?: string;    // pre-extracted text (for .ics, .txt)
+  content_base64?: string;
+  content_text?: string;
 }
 
 export async function extractFromEmail(
@@ -603,7 +703,8 @@ export async function extractFromEmail(
   snippet: string,
   body?: string,
   html_body?: string,
-  attachments?: AttachmentInput[]
+  attachments?: AttachmentInput[],
+  received_date?: string
 ): Promise<ExtractedItem[]> {
   // ✔ Fast-path: subject contains #TAG flags → skip LLM entirely
   const { tag } = parseFlagSyntax(subject);
@@ -616,18 +717,20 @@ export async function extractFromEmail(
   }
 
   // ── Build enriched content from all sources ──────────────────────────────
-  let enrichedBody = body || "";
+  let rawBody = body || "";
 
   // Parse HTML body if plain text is empty/short
-  if ((!enrichedBody || enrichedBody.length < 50) && html_body) {
-    enrichedBody = parseHtmlBody(html_body);
-    console.log(`[emailExtractor] Parsed HTML body: ${enrichedBody.length} chars`);
+  if ((!rawBody || rawBody.length < 50) && html_body) {
+    rawBody = parseHtmlBody(html_body);
+    console.log(`[emailExtractor] Parsed HTML body: ${rawBody.length} chars`);
   }
 
-  // Strip quoted/forwarded content to focus on new information
-  if (enrichedBody.length > 100) {
-    enrichedBody = stripQuotedContent(enrichedBody);
-  }
+  // ── FORWARD-AWARE content analysis ──────────────────────────────────────
+  // CRITICAL: Do NOT strip forwarded content — it contains the actual event details
+  const contentAnalysis = analyzeEmailContent(subject, rawBody);
+  const enrichedBody = contentAnalysis.primaryContent + "\n" + contentAnalysis.forwardedContent;
+
+  console.log(`[emailExtractor] Content analysis: forwarded=${contentAnalysis.isForwarded}, reply=${contentAnalysis.isReply}, primaryLen=${contentAnalysis.primaryContent.length}, fwdLen=${contentAnalysis.forwardedContent.length}`);
 
   // ── Process attachments ──────────────────────────────────────────────────
   const attachmentTexts: string[] = [];
@@ -638,7 +741,6 @@ export async function extractFromEmail(
     for (const att of attachments) {
       parsedAttachmentNames.push(att.filename);
 
-      // ICS calendar files — parse directly for high-confidence events
       if (att.mime_type === "text/calendar" || att.filename.endsWith(".ics")) {
         const icsText = att.content_text || (att.content_base64
           ? Buffer.from(att.content_base64, "base64").toString("utf-8")
@@ -651,7 +753,6 @@ export async function extractFromEmail(
         continue;
       }
 
-      // PDF files — extract text
       if (att.mime_type === "application/pdf" || att.filename.endsWith(".pdf")) {
         if (att.content_base64) {
           const pdfBuffer = Buffer.from(att.content_base64, "base64");
@@ -664,7 +765,6 @@ export async function extractFromEmail(
         continue;
       }
 
-      // Plain text / HTML attachments
       if (att.mime_type?.startsWith("text/") || att.filename.match(/\.(txt|html|htm|csv)$/i)) {
         const text = att.content_text || (att.content_base64
           ? Buffer.from(att.content_base64, "base64").toString("utf-8")
@@ -701,21 +801,36 @@ export async function extractFromEmail(
     };
   });
 
-  // ── Sender recognition: auto-detect category if no #TAG ──────────────────
+  // ── Sender recognition ──────────────────────────────────────────────────
   const senderRule = detectSenderCategory(from);
   const senderHint = senderRule
     ? `\n[Sender auto-detected as: ${senderRule.tag} (${senderRule.category})]`
     : "";
 
-  // ── Combine all text for LLM ─────────────────────────────────────────────
-  const fullContent = [
+  // ── Build context for LLM with date disambiguation hints ────────────────
+  const today = new Date().toISOString().split("T")[0];
+  const emailDate = received_date || contentAnalysis.emailSentDate || today;
+
+  const contextHeader = [
+    `TODAY'S DATE: ${today}`,
+    `EMAIL RECEIVED/SENT: ${emailDate}`,
+    contentAnalysis.isForwarded ? `⚠️ THIS IS A FORWARDED EMAIL — the forwarded content below contains the actual event details. Do NOT use the email/forward date as the event date.` : "",
     `From: ${from}`,
     `Subject: ${subject}`,
     senderHint,
+  ].filter(Boolean).join("\n");
+
+  const fullContent = [
+    contextHeader,
     `---`,
-    enrichedBody || snippet,
+    contentAnalysis.isForwarded && contentAnalysis.primaryContent
+      ? `[Forwarder's note]: ${contentAnalysis.primaryContent.slice(0, 200)}`
+      : "",
+    contentAnalysis.isForwarded
+      ? `[Forwarded content — EXTRACT EVENTS FROM HERE]:\n${contentAnalysis.forwardedContent}`
+      : enrichedBody || snippet,
     ...attachmentTexts,
-  ].join("\n").slice(0, 6000); // Cap at 6K chars for LLM context
+  ].filter(Boolean).join("\n").slice(0, 8000); // Increased cap for forwarded content
 
   // ── Call LLM for extraction ──────────────────────────────────────────────
   try {
@@ -731,22 +846,29 @@ export async function extractFromEmail(
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: fullContent },
         ],
-        temperature: 0.1,
-        max_tokens: 2000, // Increased for multi-item extraction
+        temperature: 0.05, // Lower temperature for more deterministic extraction
+        max_tokens: 3000,  // Increased for multi-item + reasoning
       }),
     });
 
     if (!res.ok) {
       console.error("[emailExtractor] API error:", res.status, await res.text());
-      // Fall back but still include ICS items
-      const fallback = fallbackExtract(subject, snippet, enrichedBody, from);
+      const fallback = fallbackExtract(subject, snippet, enrichedBody, from, emailDate);
       return [...icsItems, ...fallback];
     }
 
     const json = await res.json();
     const text: string = json.choices?.[0]?.message?.content || "[]";
     const clean = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    const items: ExtractedItem[] = JSON.parse(clean);
+
+    // Handle cases where LLM might output reasoning before JSON
+    const jsonStart = clean.indexOf("[");
+    const jsonEnd = clean.lastIndexOf("]");
+    const jsonStr = jsonStart >= 0 && jsonEnd > jsonStart
+      ? clean.slice(jsonStart, jsonEnd + 1)
+      : clean;
+
+    const items: ExtractedItem[] = JSON.parse(jsonStr);
 
     const validated = items
       .filter((item) => item && item.title)
@@ -761,9 +883,22 @@ export async function extractFromEmail(
         attachments_parsed: parsedAttachmentNames.length > 0 ? parsedAttachmentNames : undefined,
       }));
 
+    // ── Post-processing: validate dates aren't in the past (likely misclassified) ──
+    const validatedWithDateCheck = validated.map((item) => {
+      if (item.date && item.date < today && item.confidence !== "high") {
+        // If the extracted date is in the past and it matches the email date,
+        // it's likely a transaction date that was misidentified
+        if (item.date === emailDate || item.date <= emailDate) {
+          console.warn(`[emailExtractor] Suspicious past date ${item.date} for "${item.title}" — may be transaction date. Marking low confidence.`);
+          return { ...item, confidence: "low" as const, notes: `${item.notes || ""} [⚠️ Date may be transaction date, not event date]`.trim() };
+        }
+      }
+      return item;
+    });
+
     // Merge ICS items (dedup by title+date)
     const merged = [...icsItems];
-    for (const item of validated) {
+    for (const item of validatedWithDateCheck) {
       const isDup = merged.some(
         (m) => m.title === item.title && m.date === item.date
       );
@@ -773,7 +908,7 @@ export async function extractFromEmail(
     return merged;
   } catch (err) {
     console.error("[emailExtractor] parse error:", err);
-    const fallback = fallbackExtract(subject, snippet, enrichedBody, from);
+    const fallback = fallbackExtract(subject, snippet, enrichedBody, from, emailDate);
     return [...icsItems, ...fallback];
   }
 }
@@ -789,18 +924,60 @@ function detectCategoryFromText(text: string): string {
   if (/vet|grooming|pet|dog|cat/i.test(lower)) return "pets";
   if (/payment|fee|invoice|bill|due|deposit/i.test(lower)) return "payment";
   if (/house|repair|maintenance|plumber|hvac|lawn|garden|roof/i.test(lower)) return "home";
+  if (/hotel|flight|airbnb|vrbo|check.?in|check.?out|reservation|travel|trip|vacation/i.test(lower)) return "travel";
+  if (/booking|restaurant|dinner reservation|table for/i.test(lower)) return "social";
   return "other";
 }
 
 // ─── Enhanced regex fallback ─────────────────────────────────────────────────
 
-function fallbackExtract(subject: string, snippet: string, body?: string, from?: string): ExtractedItem[] {
+function fallbackExtract(subject: string, snippet: string, body?: string, from?: string, emailDate?: string): ExtractedItem[] {
   const text = `${subject} ${snippet} ${body || ""}`;
   const items: ExtractedItem[] = [];
+  const today = new Date().toISOString().split("T")[0];
 
-  // Use sender recognition for category hints
   const senderRule = from ? detectSenderCategory(from) : null;
 
+  // ── Booking/Reservation pattern detection ──────────────────────────────
+  const isBookingConfirmation = /confirm|reservation|booking|itinerary|check.?in|check.?out|departure|arrival/i.test(text);
+
+  if (isBookingConfirmation) {
+    // Look for check-in/check-out or travel dates specifically
+    const checkinRe = /(?:check.?in|arrival|depart(?:ure|s)?|from|start(?:s|ing)?)[:\s]*(?:\w+,?\s*)?(\w+ \d{1,2}(?:,?\s*\d{4})?|\d{1,2}\/\d{1,2}\/\d{2,4})/i;
+    const checkoutRe = /(?:check.?out|return|end(?:s|ing)?|to|through)[:\s]*(?:\w+,?\s*)?(\w+ \d{1,2}(?:,?\s*\d{4})?|\d{1,2}\/\d{1,2}\/\d{2,4})/i;
+
+    const checkinMatch = text.match(checkinRe);
+    const checkoutMatch = text.match(checkoutRe);
+
+    const startDate = checkinMatch ? extractFirstDate(checkinMatch[1]) : undefined;
+    const endDate = checkoutMatch ? extractFirstDate(checkoutMatch[1]) : undefined;
+
+    if (startDate && startDate > (emailDate || today)) {
+      const { children, pets } = detectMembersInText(text);
+      const location = extractLocation(text);
+      const time = extractTime(text);
+
+      items.push({
+        id: Math.random().toString(36).slice(2, 10),
+        type: "event",
+        title: subject.replace(/^(Fwd?|FW|Re):\s*/i, "").slice(0, 60),
+        date: startDate,
+        end_date: endDate && endDate > startDate ? endDate : undefined,
+        time,
+        child_ids: children,
+        pet_ids: pets,
+        category: senderRule?.category || "travel",
+        location,
+        notes: snippet.slice(0, 120),
+        confidence: "medium",
+        source_hint: checkinMatch?.[0]?.slice(0, 80) || subject.slice(0, 80),
+      });
+
+      return items;
+    }
+  }
+
+  // ── General extraction (non-booking) ──────────────────────────────────
   const dateMatch = text.match(/\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2}(?:,\s*\d{4})?/i);
   const moneyMatch = text.match(/\$[\d,]+(?:\.\d{2})?/);
   const isDeadline = /deadline|due|register|enroll|sign.?up|last day|by \w+ \d|rsvp/i.test(text);
@@ -824,10 +1001,17 @@ function fallbackExtract(subject: string, snippet: string, body?: string, from?:
         : type === "appointment" ? "medical"
         : detectCategoryFromText(text));
 
+    // Skip if the only date we found is the email date (likely not an event)
+    if (date && date === emailDate && !isDeadline && !isAppointment) {
+      // Probably a transaction confirmation — don't create an event
+      console.log(`[emailExtractor] Skipping — only date found (${date}) matches email date`);
+      return [];
+    }
+
     items.push({
       id: Math.random().toString(36).slice(2, 10),
       type,
-      title: subject.slice(0, 60),
+      title: subject.replace(/^(Fwd?|FW|Re):\s*/i, "").slice(0, 60),
       date,
       time,
       amount: moneyMatch?.[0],
