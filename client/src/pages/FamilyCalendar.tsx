@@ -175,7 +175,7 @@ export default function FamilyCalendar() {
     if (!currentCustody) return null;
     const isBieri = currentCustody.household_id === "hh-bieri";
     return {
-      label: isBieri ? "Bieri" : "James",
+      label: isBieri ? "Cole & Airlie here" : "Cole & Airlie away",
       colorClass: isBieri
         ? "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700"
         : "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700",
@@ -208,7 +208,6 @@ export default function FamilyCalendar() {
           {custodyBadge && (
             <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${custodyBadge.colorClass}`}>
               <Home size={12} />
-              <span>Cole & Airlie with</span>
               <span className="font-semibold">{custodyBadge.label}</span>
               <span className={`w-2 h-2 rounded-full ${custodyBadge.dotClass} animate-pulse`} />
             </div>
