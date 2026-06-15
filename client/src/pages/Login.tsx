@@ -2,22 +2,10 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Lock, Mail } from "lucide-react";
 
 export default function Login() {
-  const { login } = useAuth();
-  const [pw, setPw] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
-    const ok = await login(pw);
-    if (!ok) setError("Wrong password. Try again.");
-    setLoading(false);
-  }
-
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
@@ -38,30 +26,28 @@ export default function Login() {
 
         <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
           <h1 className="text-base font-semibold mb-1">Welcome back</h1>
-          <p className="text-sm text-muted-foreground mb-5">Enter the family password to continue.</p>
+          <p className="text-sm text-muted-foreground mb-5">Sign in to continue.</p>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <Input
-                data-testid="input-password"
-                type="password"
-                placeholder="Family password"
-                value={pw}
-                onChange={e => setPw(e.target.value)}
-                autoFocus
-                className="h-10"
-              />
-              {error && <p className="text-sm text-destructive mt-1.5">{error}</p>}
-            </div>
-            <Button
-              data-testid="button-login"
-              type="submit"
-              className="w-full"
-              disabled={loading || !pw}
-            >
-              {loading ? "Checking…" : "Sign in"}
-            </Button>
-          </form>
+          <Tabs defaultValue="password">
+            <TabsList className="grid w-full grid-cols-2 mb-4">
+              <TabsTrigger value="password" className="text-xs">
+                <Lock className="h-3 w-3 mr-1" />
+                Family Password
+              </TabsTrigger>
+              <TabsTrigger value="email" className="text-xs">
+                <Mail className="h-3 w-3 mr-1" />
+                Email Login
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="password">
+              <PasswordLogin />
+            </TabsContent>
+
+            <TabsContent value="email">
+              <EmailLogin />
+            </TabsContent>
+          </Tabs>
         </div>
 
         {/* Kids row */}
@@ -75,8 +61,96 @@ export default function Login() {
             );
           })}
         </div>
-        <p className="text-center text-xs text-muted-foreground mt-2">6 kids · 1 dashboard</p>
+        <p className="text-center text-xs text-muted-foreground mt-2">6 kids \u00b7 1 dashboard</p>
       </div>
     </div>
+  );
+}
+
+function PasswordLogin() {
+  const { login } = useAuth();
+  const [pw, setPw] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    const ok = await login(pw);
+    if (!ok) setError("Wrong password. Try again.");
+    setLoading(false);
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <Input
+          data-testid="input-password"
+          type="password"
+          placeholder="Family password"
+          value={pw}
+          onChange={e => setPw(e.target.value)}
+          autoFocus
+          className="h-10"
+        />
+        {error && <p className="text-sm text-destructive mt-1.5">{error}</p>}
+      </div>
+      <Button
+        data-testid="button-login"
+        type="submit"
+        className="w-full"
+        disabled={loading || !pw}
+      >
+        {loading ? "Checking\u2026" : "Sign in"}
+      </Button>
+    </form>
+  );
+}
+
+function EmailLogin() {
+  const { login } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    const ok = await login(email, password);
+    if (!ok) setError("Invalid email or password.");
+    setLoading(false);
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <Input
+          type="email"
+          placeholder="Email address"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          className="h-10"
+        />
+      </div>
+      <div>
+        <Input
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          className="h-10"
+        />
+        {error && <p className="text-sm text-destructive mt-1.5">{error}</p>}
+      </div>
+      <Button type="submit" className="w-full" disabled={loading || !email || !password}>
+        {loading ? "Signing in\u2026" : "Sign in with Email"}
+      </Button>
+      <p className="text-xs text-muted-foreground text-center">
+        For co-parent and individual accounts.
+      </p>
+    </form>
   );
 }
