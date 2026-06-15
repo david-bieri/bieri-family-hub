@@ -3,6 +3,7 @@ import express, { Response, NextFunction } from 'express';
 import type { Request } from 'express';
 import { registerRoutes, registerInboxRoutes, registerMessageRoutes, registerCarpoolRoutes, registerActivityRoutes } from "./routes";
 import { registerAcademicRoutes } from "./routes/academic";
+import { registerHolidayRoutes } from "./holidayAlternation";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
 
@@ -69,6 +70,7 @@ app.use((req, res, next) => {
   registerCarpoolRoutes(app);
   registerActivityRoutes(app);
   registerAcademicRoutes(app);
+  registerHolidayRoutes(app);
 
   // Start Telegram bot (long-polling, no webhook needed)
   const { startTelegramBot } = await import("./telegramBot");
