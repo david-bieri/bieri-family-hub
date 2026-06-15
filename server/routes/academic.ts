@@ -18,6 +18,7 @@
 import type { Express, Request, Response } from "express";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { nanoid } from "nanoid";
+import ws from "ws";
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
@@ -29,6 +30,7 @@ const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABA
 function getUserClient(req: Request): SupabaseClient {
   const token = req.headers.authorization?.replace("Bearer ", "");
   return createClient(supabaseUrl, supabaseAnonKey, {
+    realtime: { transport: ws },
     global: {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     },

@@ -19,12 +19,13 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { nanoid } from "nanoid";
+import ws from "ws";
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
 // Service-role key bypasses RLS; fall back to anon key (scheduled tasks run server-side)
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(supabaseUrl, supabaseKey, { realtime: { transport: ws } });
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
