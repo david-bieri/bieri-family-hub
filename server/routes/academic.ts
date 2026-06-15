@@ -19,8 +19,8 @@ import type { Express, Request, Response } from "express";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { nanoid } from "nanoid";
 
-const supabaseUrl = process.env.SUPABASE_URL || "";
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
 
 /**
  * Creates a Supabase client scoped to the requesting user's JWT.

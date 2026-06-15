@@ -20,11 +20,11 @@
 import { createClient } from "@supabase/supabase-js";
 import { nanoid } from "nanoid";
 
-const supabaseUrl = process.env.SUPABASE_URL || "";
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY || "";
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+// Service-role key bypasses RLS; fall back to anon key (scheduled tasks run server-side)
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
 
-// Service-role client bypasses RLS for scheduled tasks
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -309,6 +309,24 @@ async function sendSMS(phone: string, message: string): Promise<void> {
   } catch (err) {
     console.error("[handoff] SMS send failed:", err);
   }
+}
+
+// ─── Scheduler Entry Point ───────────────────────────────────────────────────
+/**
+ * Start the handoff digest scheduler.
+ * Checks every hour if it's Sunday evening (6 PM) and sends the digest.
+ */
+export function startHandoffScheduler(): void {
+  console.log("[handoff] Scheduler started — checks hourly for custody transitions");
+
+  // Check every hour
+  setInterval(async () => {
+    try {
+      await checkAndSendHandoffDigest();
+    } catch (err) {
+      console.error("[handoff] Digest generation failed:", err);
+    }
+  }, 60 * 60 * 1000); // 1 hour
 }
 
 // ─── Export for testing ──────────────────────────────────────────────────────
