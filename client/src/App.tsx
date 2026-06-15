@@ -21,15 +21,31 @@ import ActivityFeed from "./pages/ActivityFeed";
 import Help from "./pages/Help";
 import HomeProperty from "./pages/HomeProperty";
 import Carpool from "./pages/Carpool";
+import Academics from "./pages/Academics";
+import CoParentPortal from "./pages/CoParentPortal";
+import { RoleGuard } from "./components/RoleGuard";
 import NotFound from "./pages/not-found";
 
 // Check for share token in query params (public read-only calendar link)
 const shareToken = new URLSearchParams(window.location.search).get("share");
 
 function AppRoutes() {
-  const { authed } = useAuth();
+  const { authed, isCoparent } = useAuth();
 
   if (!authed) return <Login />;
+
+  // Co-parent users are redirected to their restricted portal
+  if (isCoparent) {
+    return (
+      <Router hook={useHashLocation}>
+        <Switch>
+          <Route path="/" component={CoParentPortal} />
+          <Route path="/coparent-portal" component={CoParentPortal} />
+          <Route>{() => <CoParentPortal />}</Route>
+        </Switch>
+      </Router>
+    );
+  }
 
   return (
     <Router hook={useHashLocation}>
@@ -43,6 +59,8 @@ function AppRoutes() {
           <Route path="/payments" component={Payments} />
           <Route path="/categories" component={Categories} />
           <Route path="/family-calendar" component={FamilyCalendar} />
+          <Route path="/academics" component={Academics} />
+          <Route path="/coparent-portal">{() => <RoleGuard allowedRoles={["admin"]}><CoParentPortal /></RoleGuard>}</Route>
           <Route path="/inbox" component={InboxImports} />
           <Route path="/pets" component={Pets} />
           <Route path="/activity" component={ActivityFeed} />

@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import {
   LayoutDashboard, Calendar, Stethoscope, Trophy,
-  Tent, CreditCard, LogOut, Menu, X, Moon, Sun, Tag, CalendarDays, Inbox, PawPrint, Bell, BookOpen, Home, Car
+  Tent, CreditCard, LogOut, Menu, X, Moon, Sun, Tag, CalendarDays, Inbox, PawPrint, Bell, BookOpen, Home, Car, GraduationCap
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -19,6 +19,7 @@ const NAV = [
   { href: "/camps",          label: "Camps & Reg.",   icon: Tent,         badgeKey: "camps" },
   { href: "/payments",       label: "Payments",       icon: CreditCard,   badgeKey: "payments" },
   { href: "/categories",     label: "Categories",     icon: Tag },
+  { href: "/academics",      label: "Academics",       icon: GraduationCap },
   { href: "/home-property",  label: "Home & Property", icon: Home,         badgeKey: "home" },
   { href: "/carpool",         label: "Carpool",          icon: Car,          badgeKey: "carpool" },
   { href: "/pets",           label: "Pets",            icon: PawPrint },

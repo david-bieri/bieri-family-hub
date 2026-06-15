@@ -27,7 +27,7 @@ export interface Event {
   time?: string;      // HH:MM
   end_time?: string;
   child_ids: string[]; // JSON array stored as text
-  category: 'school' | 'sports' | 'medical' | 'camp' | 'family' | 'other';
+  category: 'school' | 'sports' | 'medical' | 'camp' | 'family' | 'academics' | 'other';
   notes?: string;
   recurring?: boolean;
   created_at?: string;
@@ -104,3 +104,6 @@ export interface Payment {
   payee?: string;
   notes?: string;
 }
+
+// ─── Homeschool Module ───────────────────────────────────────────────────────
+export * from "./homeschool";
