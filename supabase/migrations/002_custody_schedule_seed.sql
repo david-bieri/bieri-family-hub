@@ -175,7 +175,7 @@ CREATE POLICY "holiday_rules_admin_write" ON custody_holiday_rules
   FOR ALL USING (
     EXISTS (
       SELECT 1 FROM hub_users
-      WHERE hub_users.id = auth.uid()
+      WHERE hub_users.id = auth.uid()::text
       AND hub_users.role IN ('admin', 'parent')
     )
   );

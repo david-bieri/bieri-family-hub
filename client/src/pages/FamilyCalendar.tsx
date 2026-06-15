@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { CHILDREN, PARENTS } from "@/lib/children";
@@ -9,7 +9,7 @@ import {
   Dialog, DialogContent, DialogHeader,
   DialogTitle, DialogFooter
 } from "@/components/ui/dialog";
-import { Share2, Copy, Check, RefreshCw, Calendar } from "lucide-react";
+import { Share2, Copy, Check, RefreshCw, Calendar, Home } from "lucide-react";
 import {
   format, parseISO, startOfMonth, endOfMonth,
   eachDayOfInterval, isSameDay, getDay, addMonths, subMonths
@@ -19,12 +19,36 @@ const TYPE_LABELS: Record<string, string> = {
   event: "Event", appointment: "Appointment", payment: "Payment Due", registration: "Deadline",
 };
 
+interface CustodyBlock {
+  id: string;
+  week_start: string;
+  household_id: string;
+  child_ids: string[];
+  notes: string;
+}
+
 function getHashChildParam(): string | null {
-  // Hash is like #/family-calendar?child=cole
-  const hash = window.location.hash; // e.g. "#/family-calendar?child=cole"
+  const hash = window.location.hash;
   const qIndex = hash.indexOf("?");
   if (qIndex === -1) return null;
   return new URLSearchParams(hash.slice(qIndex + 1)).get("child");
+}
+
+/**
+ * Determine which household has custody on a given date.
+ * Finds the most recent custody block whose week_start <= date.
+ */
+function getCustodyForDate(date: string, blocks: CustodyBlock[]): CustodyBlock | null {
+  // blocks should be sorted by week_start ascending
+  let result: CustodyBlock | null = null;
+  for (const block of blocks) {
+    if (block.week_start <= date) {
+      result = block;
+    } else {
+      break;
+    }
+  }
+  return result;
 }
 
 export default function FamilyCalendar() {
@@ -52,6 +76,27 @@ export default function FamilyCalendar() {
     queryKey: ["/api/categories"],
     queryFn: async () => (await apiRequest("GET", "/api/categories")).json(),
   });
+
+  // Fetch custody schedule for the current year
+  const currentYear = month.getFullYear();
+  const { data: custodyBlocks = [] } = useQuery<CustodyBlock[]>({
+    queryKey: ["/api/custody/schedule", currentYear],
+    queryFn: async () =>
+      (await apiRequest("GET", `/api/custody/schedule?year=${currentYear}`)).json(),
+  });
+
+  // Fetch current custody status
+  const { data: currentCustody } = useQuery<CustodyBlock>({
+    queryKey: ["/api/custody/current"],
+    queryFn: async () =>
+      (await apiRequest("GET", "/api/custody/current")).json(),
+  });
+
+  // Sort custody blocks by week_start for binary-search lookup
+  const sortedBlocks = useMemo(
+    () => [...custodyBlocks].sort((a, b) => a.week_start.localeCompare(b.week_start)),
+    [custodyBlocks]
+  );
 
   const createShare = useMutation({
     mutationFn: async () => (await apiRequest("POST", "/api/share/create", { label: "Bieri Family Calendar" })).json(),
@@ -111,9 +156,35 @@ export default function FamilyCalendar() {
     setTimeout(() => setCopied(false), 2000);
   }
 
+  /**
+   * Get the background class for a day cell based on custody.
+   * Bieri = subtle green tint, James = subtle amber tint.
+   */
+  function getCustodyBg(day: Date): string {
+    if (sortedBlocks.length === 0) return "";
+    const dateStr = format(day, "yyyy-MM-dd");
+    const block = getCustodyForDate(dateStr, sortedBlocks);
+    if (!block) return "";
+    return block.household_id === "hh-bieri"
+      ? "bg-emerald-50 dark:bg-emerald-950/20"
+      : "bg-amber-50 dark:bg-amber-950/20";
+  }
+
+  // Current custody badge info
+  const custodyBadge = useMemo(() => {
+    if (!currentCustody) return null;
+    const isBieri = currentCustody.household_id === "hh-bieri";
+    return {
+      label: isBieri ? "Bieri" : "James",
+      colorClass: isBieri
+        ? "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700"
+        : "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700",
+      dotClass: isBieri ? "bg-emerald-500" : "bg-amber-500",
+    };
+  }, [currentCustody]);
+
   // Upcoming list (next 14 days)
   const today = format(new Date(), "yyyy-MM-dd");
-  const in14 = format(addMonths(new Date(), 0), "yyyy-MM-dd");
   const upcoming = items
     .filter((item: any) => item.date && item.date >= today)
     .sort((a: any, b: any) => a.date.localeCompare(b.date))
@@ -132,13 +203,24 @@ export default function FamilyCalendar() {
             All events, appointments, payments, and deadlines in one view
           </p>
         </div>
-        <Button
-          size="sm" variant="outline"
-          onClick={() => { setShareOpen(true); if (!shareToken) createShare.mutate(); }}
-          data-testid="button-share-calendar"
-        >
-          <Share2 size={14} className="mr-1.5" /> Share
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* Custody badge */}
+          {custodyBadge && (
+            <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${custodyBadge.colorClass}`}>
+              <Home size={12} />
+              <span>Cole & Airlie with</span>
+              <span className="font-semibold">{custodyBadge.label}</span>
+              <span className={`w-2 h-2 rounded-full ${custodyBadge.dotClass} animate-pulse`} />
+            </div>
+          )}
+          <Button
+            size="sm" variant="outline"
+            onClick={() => { setShareOpen(true); if (!shareToken) createShare.mutate(); }}
+            data-testid="button-share-calendar"
+          >
+            <Share2 size={14} className="mr-1.5" /> Share
+          </Button>
+        </div>
       </div>
 
       <div className="flex gap-4 lg:gap-6 flex-col lg:flex-row">
@@ -173,12 +255,14 @@ export default function FamilyCalendar() {
                 const isToday = isSameDay(day, new Date());
                 const dateStr = format(day, "yyyy-MM-dd");
                 const isSelected = selectedDay === dateStr;
+                const custodyBgClass = getCustodyBg(day);
 
                 return (
                   <div
                     key={day.toISOString()}
                     className={`min-h-[80px] border-b border-r border-border p-1 cursor-pointer transition-colors
-                      ${isSelected ? "bg-primary/8" : "hover:bg-muted/40"}`}
+                      ${custodyBgClass}
+                      ${isSelected ? "ring-2 ring-primary ring-inset" : "hover:brightness-95"}`}
                     onClick={() => setSelectedDay(isSelected ? null : dateStr)}
                   >
                     <div className={`text-xs font-medium mb-0.5 w-5 h-5 flex items-center justify-center rounded-full
@@ -208,12 +292,41 @@ export default function FamilyCalendar() {
             </div>
           </div>
 
+          {/* Custody legend (below calendar) */}
+          {sortedBlocks.length > 0 && (
+            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-sm bg-emerald-100 border border-emerald-200" />
+                <span>Bieri household</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-sm bg-amber-100 border border-amber-200" />
+                <span>James household</span>
+              </div>
+              <span className="text-muted-foreground/60 ml-auto">Cole & Airlie custody schedule</span>
+            </div>
+          )}
+
           {/* Day detail panel */}
           {selectedDay && selectedItems.length > 0 && (
             <div className="bg-card border border-border rounded-xl p-4 space-y-2">
               <h3 className="text-sm font-semibold">
                 {format(parseISO(selectedDay), "EEEE, MMMM d")}
                 <span className="ml-2 text-xs text-muted-foreground font-normal">{selectedItems.length} item{selectedItems.length !== 1 ? "s" : ""}</span>
+                {/* Show custody for selected day */}
+                {sortedBlocks.length > 0 && (() => {
+                  const block = getCustodyForDate(selectedDay, sortedBlocks);
+                  if (!block) return null;
+                  const isBieri = block.household_id === "hh-bieri";
+                  return (
+                    <span className={`ml-2 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                      isBieri ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                    }`}>
+                      <Home size={9} />
+                      {isBieri ? "Bieri" : "James"} week
+                    </span>
+                  );
+                })()}
               </h3>
               {selectedItems.map((item: any) => {
                 const color = getCatColor(item.category);
