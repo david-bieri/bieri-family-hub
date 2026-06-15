@@ -18,10 +18,9 @@
 import { createClient } from "@supabase/supabase-js";
 
 // ─── Supabase client ────────────────────────────────────────────────────────
-const supabase = createClient(
-  process.env.SUPABASE_URL || "",
-  process.env.SUPABASE_ANON_KEY || ""
-);
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+const supabaseKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -75,14 +74,14 @@ function isTelegramConfigured(): boolean {
 
 // Phone numbers for SMS recipients
 const PHONE_BOOK: Record<string, string> = {
-  david: process.env.DAVID_PHONE || "",
-  nancy: process.env.NANCY_PHONE || "",
+  david: process.env.TWILIO_NOTIFY_DAVID || process.env.DAVID_PHONE || "",
+  nancy: process.env.TWILIO_NOTIFY_NANCY || process.env.NANCY_PHONE || "",
 };
 
 // Telegram chat IDs
 const TELEGRAM_CHATS: Record<string, string> = {
-  david: process.env.TELEGRAM_DAVID_CHAT_ID || "",
-  nancy: process.env.TELEGRAM_NANCY_CHAT_ID || "",
+  david: process.env.TELEGRAM_CHAT_DAVID || process.env.TELEGRAM_DAVID_CHAT_ID || "",
+  nancy: process.env.TELEGRAM_CHAT_NANCY || process.env.TELEGRAM_NANCY_CHAT_ID || "",
   family_group: process.env.TELEGRAM_FAMILY_GROUP_ID || "",
 };
 
@@ -247,6 +246,10 @@ async function dispatchTelegram(payload: NotificationPayload): Promise<void> {
 // ─── Activity Log Dispatcher ────────────────────────────────────────────────
 
 async function dispatchLog(payload: NotificationPayload): Promise<void> {
+  if (!supabase) {
+    console.warn("[notifications] Supabase not configured, skipping activity log");
+    return;
+  }
   try {
     const { error } = await supabase.from("activity_log").insert({
       type: payload.type,
