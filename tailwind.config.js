@@ -1,7 +1,21 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: ["class"],
-  content: ["./client/index.html", "./client/src/**/*.{js,jsx,ts,tsx}"],
+  content: ["./client/index.html", "./client/src/**/*.{js,jsx,ts,tsx}", "./shared/**/*.{ts,tsx}"],
+  safelist: [
+    // Child color pills (dynamically applied from schema.ts)
+    "bg-blue-500",
+    "bg-purple-500",
+    "bg-green-500",
+    "bg-amber-500",
+    "bg-rose-400",
+    "bg-teal-400",
+    // Custody calendar shadings
+    "bg-green-50",
+    "bg-amber-50",
+    "bg-green-100",
+    "bg-amber-100",
+  ],
   theme: {
     extend: {
       borderRadius: {
