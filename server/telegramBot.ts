@@ -620,7 +620,9 @@ async function handleCallback(query: TelegramCallbackQuery): Promise<void> {
 // ─── Message Router ─────────────────────────────────────────────────────────
 
 async function handleMessage(msg: TelegramMessage): Promise<void> {
-  const text = msg.text || "";
+  // Strip @BotName suffix from commands in group chats (e.g., /today@BieriFamilyHubBot → /today)
+  const rawText = msg.text || "";
+  const text = rawText.replace(/@\w+/g, "").trim();
 
   if (text.startsWith("/start")) return handleStart(msg);
   if (text.startsWith("/help")) return handleHelp(msg);
@@ -685,6 +687,24 @@ async function pollUpdates(): Promise<void> {
 
 // ─── Bot Lifecycle ──────────────────────────────────────────────────────────
 
+let restartAttempts = 0;
+const MAX_RESTART_ATTEMPTS = 10;
+const BASE_RESTART_DELAY_MS = 3000; // 3 seconds, doubles each attempt
+
+function scheduleRestart(): void {
+  if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
+    console.error(`[telegram] Max restart attempts (${MAX_RESTART_ATTEMPTS}) reached. Bot stopped.`);
+    return;
+  }
+  const delay = BASE_RESTART_DELAY_MS * Math.pow(2, restartAttempts);
+  restartAttempts++;
+  console.log(`[telegram] Scheduling restart attempt ${restartAttempts}/${MAX_RESTART_ATTEMPTS} in ${delay / 1000}s...`);
+  setTimeout(() => {
+    pollingActive = false; // Reset so startTelegramBot doesn't bail
+    startTelegramBot();
+  }, delay);
+}
+
 export function startTelegramBot(): void {
   if (!BOT_TOKEN()) {
     console.log("[telegram] TELEGRAM_BOT_TOKEN not set — bot disabled");
@@ -711,7 +731,7 @@ export function startTelegramBot(): void {
     ],
   });
 
-  // Start polling loop
+  // Start polling loop with auto-restart on crash
   const loop = async () => {
     while (pollingActive) {
       await pollUpdates();
@@ -720,10 +740,23 @@ export function startTelegramBot(): void {
     }
   };
 
-  loop().catch(err => {
-    console.error("[telegram] Polling loop crashed:", err);
-    pollingActive = false;
-  });
+  loop()
+    .then(() => {
+      // Loop exited cleanly (pollingActive set to false externally)
+      console.log("[telegram] Polling loop exited cleanly");
+    })
+    .catch(err => {
+      console.error("[telegram] Polling loop crashed:", err.message || err);
+      pollingActive = false;
+      scheduleRestart();
+    });
+
+  // Reset restart counter on successful start (if we stay alive for 60s)
+  setTimeout(() => {
+    if (pollingActive) {
+      restartAttempts = 0;
+    }
+  }, 60000);
 }
 
 export function stopTelegramBot(): void {
